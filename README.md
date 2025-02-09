@@ -1,4 +1,4 @@
-# Rain
+# MontyBot
 
 # Chess Engine that can be easily modular and playable
 
