@@ -1,5 +1,5 @@
 import torch
-from net import SimpleNNUE 
+from .net import SimpleNNUE 
 import numpy as np
 
 def train():
