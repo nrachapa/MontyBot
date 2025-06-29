@@ -1,1 +1,0 @@
-/usr/bin/c++ -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/eval.dir/src/main.cpp.o -o eval  /usr/local/lib/libonnxruntime.dylib
