@@ -1,60 +1,75 @@
 import os
 import random
-from typing import List
 import numpy as np
-
 import torch
-import torch.nn.functional as F
-from torch import optim
 
-from .game import Game
-from .network import AlphaZeroNet
-from .replay_buffer import ReplayBuffer
-from .self_play import SelfPlay
-from .mcts import MCTS
+from .config import Config
+from .trainer import Trainer
 
 
-def state_to_tensor(game: Game, state):
-    board, player = state
-    current = (board == player).astype('float32')
-    opponent = (board == -player).astype('float32')
-    x = torch.from_numpy(np.stack([current, opponent], axis=0))
-    return x
-
-
-def train_network(game: Game, net: AlphaZeroNet, buffer: ReplayBuffer, optimizer):
-    batch = buffer.sample(min(len(buffer), 32))
-    states, policies, outcomes = zip(*batch)
-    inputs = torch.stack([state_to_tensor(game, s) for s in states])
-    target_p = torch.tensor(policies, dtype=torch.float32)
-    target_v = torch.tensor(outcomes, dtype=torch.float32)
-    log_p, v = net(inputs)
-    value_loss = F.mse_loss(v, target_v)
-    policy_loss = -torch.mean(torch.sum(target_p * log_p, dim=1))
-    l2_loss = 1e-4 * sum(p.pow(2).sum() for p in net.parameters())
-    loss = value_loss + policy_loss + l2_loss
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
-    return loss.item()
+def set_seeds(seed: int = 42):
+    """Set random seeds for reproducibility"""
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 
 def main():
-    game = Game()
-    net = AlphaZeroNet(board_size=game.board_size, action_size=game.board_size ** 2)
-    buffer = ReplayBuffer(capacity=1000)
-    optimizer = optim.SGD(net.parameters(), lr=0.2, momentum=0.9, weight_decay=1e-4)
+    # Set seeds for reproducibility
+    set_seeds(42)
+    
+    # Initialize configuration
+    config = Config()
+    
+    # Create trainer
+    trainer = Trainer(config)
+    
+    print(f"Starting training with config:")
+    print(f"  Device: {config.device}")
+    print(f"  Batch size: {config.batch_size}")
+    print(f"  Simulations: {config.simulations}")
+    print(f"  Network: {config.filters} filters, {config.blocks} blocks")
+    print(f"  Buffer capacity: {config.buffer_capacity}")
+    
+    # Training loop
+    num_iterations = 100
+    
+    for iteration in range(num_iterations):
+        # Train one iteration
+        results = trainer.train_iteration(iteration)
+        
+        # Print progress
+        if results['win_rate'] is not None:
+            print(f"Iter {iteration+1}: Loss={results['loss']:.4f}, "
+                  f"Win Rate={results['win_rate']:.2%}, "
+                  f"Buffer={results['buffer_size']}, "
+                  f"Memory={results['memory_usage']:.1f}GB, "
+                  f"LR={results['lr']:.6f}")
+        else:
+            print(f"Iter {iteration+1}: Loss={results['loss']:.4f}, "
+                  f"Buffer={results['buffer_size']}, "
+                  f"Memory={results['memory_usage']:.1f}GB")
+        
+        # Save checkpoint
+        if (iteration + 1) % config.checkpoint_frequency == 0:
+            checkpoint_path = f'checkpoint_iter_{iteration+1}.pt'
+            trainer.save_checkpoint(iteration, checkpoint_path)
+            print(f"Saved checkpoint: {checkpoint_path}")
+        
+        # Early stopping check
+        if trainer.early_stopping(results['loss']):
+            print(f"Early stopping at iteration {iteration+1}")
+            break
+    
+    # Save final model
+    torch.save(trainer.net.state_dict(), 'final_model.pt')
+    
+    # Save training metrics plot
+    trainer.metrics.plot_metrics('training_metrics.png')
+    print("Training completed!")
 
-    num_iterations = 1
-    games_per_iteration = 1
-    train_steps = 1
-
-    for _ in range(num_iterations):
-        sp = SelfPlay(game, net, buffer)
-        sp.play_games(games_per_iteration)
-        for _ in range(train_steps):
-            loss = train_network(game, net, buffer, optimizer)
-            print(f"loss: {loss}")
 
 if __name__ == "__main__":
     main()

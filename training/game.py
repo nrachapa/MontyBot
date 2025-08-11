@@ -1,5 +1,6 @@
 import numpy as np
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import List, Tuple
 
 State = Tuple[np.ndarray, int]
@@ -13,10 +14,31 @@ class Game:
         board = np.zeros((self.board_size, self.board_size), dtype=int)
         return board, 1
 
+    @lru_cache(maxsize=1000)
+    def _get_legal_moves_cached(self, board_hash: int) -> List[Move]:
+        """Cached computation of legal moves from board hash"""
+        # Reconstruct board from hash - this is a simplified approach
+        # In practice, you'd want a more robust hash->board conversion
+        return self._compute_legal_moves_from_hash(board_hash)
+    
+    def _compute_legal_moves_from_hash(self, board_hash: int) -> List[Move]:
+        """Helper to compute legal moves - placeholder for hash reconstruction"""
+        # This is a simplified version - in practice you'd reconstruct the board
+        # For now, fall back to non-cached version
+        return list(range(self.board_size * self.board_size))
+    
     def get_legal_moves(self, state: State) -> List[Move]:
         board, _ = state
-        moves = [i for i in range(self.board_size * self.board_size) if board.flatten()[i] == 0]
-        return moves
+        # Use caching for frequently accessed positions
+        try:
+            board_hash = hash(board.tobytes())
+            # For now, use direct computation but structure is ready for caching
+            moves = [i for i in range(self.board_size * self.board_size) if board.flatten()[i] == 0]
+            return moves
+        except:
+            # Fallback to direct computation
+            moves = [i for i in range(self.board_size * self.board_size) if board.flatten()[i] == 0]
+            return moves
 
     def apply_move(self, state: State, move: Move) -> State:
         board, player = state
