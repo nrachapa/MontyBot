@@ -1,0 +1,69 @@
+# Ruff configuration for MontyBot
+# Ruff is a fast Python linter written in Rust (modern alternative to Pylint/Flake8)
+
+line-length = 120
+target-version = "py310"
+
+[lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort (import sorting)
+    "N",     # pep8-naming
+    "UP",    # pyupgrade (modernize Python code)
+    "B",     # flake8-bugbear (find likely bugs)
+    "C4",    # flake8-comprehensions
+    "SIM",   # flake8-simplify
+    "RET",   # flake8-return
+    "ARG",   # flake8-unused-arguments
+    "PTH",   # flake8-use-pathlib
+]
+
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "B008",   # do not perform function calls in argument defaults (Pydantic uses this)
+    "B904",   # raise from within except (sometimes intentional)
+    "B905",   # zip without explicit strict parameter
+    "ARG001", # unused function argument (common in interfaces)
+    "ARG002", # unused method argument (common in overrides)
+    "PTH",    # use pathlib instead of os.path (gradual migration, os.path is fine)
+    "N806",   # variable in function should be lowercase (constants are OK)
+    "N812",   # lowercase imported as non-lowercase (F for functional is standard)
+    "E721",   # type comparison (needed for annotation checks in tests)
+]
+
+# Exclude directories
+exclude = [
+    ".git",
+    ".pytest_cache",
+    ".ruff_cache",
+    "__pycache__",
+    "*.egg-info",
+    ".env",
+    "build",
+    "dist",
+]
+
+[lint.per-file-ignores]
+"tests/*" = [
+    "F401",  # Allow unused imports in tests
+    "F811",  # Allow redefinition in tests
+    "ARG",   # Allow unused arguments in test fixtures
+]
+"__init__.py" = [
+    "F401",  # Allow unused imports in __init__
+]
+"src/infra/sagemaker_manager.py" = [
+    "ARG001", # Allow unused args in SageMaker entry points
+]
+
+[lint.isort]
+known-first-party = ["src"]
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+
+[format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+skip-magic-trailing-comma = false
