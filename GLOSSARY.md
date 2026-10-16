@@ -38,7 +38,7 @@ The 8-plane board encoding the network consumes: 6 piece types × 2 sides + 2 ca
 _Avoid_: input planes (standalone), features
 
 **The action space**:
-189 actions: 64 squares × {quiet, capture} + 5 castles (ADR-0006). Fixed for every position so generation can batch.
+133 actions: 64 quiet + 64 captures + 5 castles (ADR-0006). Fixed for every position so generation can batch.
 _Avoid_: moves (for the encoded vector), legal moves
 
 **Play**:
