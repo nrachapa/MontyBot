@@ -91,7 +91,7 @@ class BatchManager:
                     # Calculate remaining time in timeout window
                     elapsed = time.monotonic() - start_time
                     wait = self.timeout - elapsed
-                    
+
                     # If timeout expired and we have at least one item, process the batch
                     if wait <= 0:
                         if len(batch) > 0:

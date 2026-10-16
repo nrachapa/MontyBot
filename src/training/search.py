@@ -1,4 +1,3 @@
-import multiprocessing as mp
 import os
 from multiprocessing import Pool
 from typing import Any
@@ -26,7 +25,7 @@ def worker_init():
     import multiprocessing
     identity = multiprocessing.current_process()._identity
     worker_num = identity[0] - 1 if identity else 0  # _identity is 1-indexed
-    
+
     # Access the global client for this worker
     WORKER_CLIENT = _GLOBAL_CLIENTS[worker_num % len(_GLOBAL_CLIENTS)]
     # Optimization: Set device to CPU in worker to avoid unnecessary GPU transfer
@@ -376,7 +375,7 @@ class ParallelSelfPlay(SelfPlayStrategy):
             global _GLOBAL_MANAGER, _GLOBAL_CLIENTS
             _GLOBAL_MANAGER = manager
             _GLOBAL_CLIENTS = [manager.create_client() for _ in range(num_workers)]
-            
+
             # Create pool with initializer that assigns each worker its client
             with Pool(num_workers, initializer=worker_init, initargs=()) as pool:
                 return pool.map(self._play_game, range(n_games))

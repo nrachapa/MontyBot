@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.DS_Store
+.venv/
+.env/
+.ruff_cache/
+.pytest_cache/
+graphify-out/
+checkpoints/
+model.pt
+checkpoint_*.pt
+*.onnx
+training_metrics.png

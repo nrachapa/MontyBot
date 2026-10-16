@@ -41,8 +41,12 @@ exclude = [
     "__pycache__",
     "*.egg-info",
     ".env",
+    ".venv",
     "build",
     "dist",
+    ".scratch",
+    "graphify-out",
+    "checkpoints",
 ]
 
 [lint.per-file-ignores]

@@ -1,0 +1,15 @@
+# One job: the same checks pre-commit runs locally.
+name: check
+on: [push, pull_request]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"   # requirements.txt: torch 2.2.x, py310 on SageMaker
+      - run: pip install -r requirements.txt ruff
+      - run: ruff check src tests
+      - run: pytest -q
