@@ -245,14 +245,15 @@ class TestSageMakerIntegration:
 
         try:
             trainer = SageMakerTrainer(s3_manager)
-            # Force buffer.sample to return [] so the 'continue' at line 43 is hit
-            trainer.selfplay = Mock()
-            trainer.selfplay.generate_games.return_value = [[("state", "policy", 0.1)]]
-            trainer.buffer = Mock()
-            trainer.buffer.sample.return_value = []
-            trainer.training = Mock()
-            trainer.network = Mock()
-            trainer.network.state_dict.return_value = {"s": 1}
+            # train_gpu reads these off the nested Trainer: mock there, not on
+            # the SageMakerTrainer wrapper (which has no such attributes).
+            trainer.trainer.selfplay = Mock()
+            trainer.trainer.selfplay.generate_games.return_value = [[("state", "policy", 0.1)]]
+            trainer.trainer.buffer = Mock()
+            trainer.trainer.buffer.sample.return_value = []
+            trainer.trainer.training = Mock()
+            trainer.trainer.network = Mock()
+            trainer.trainer.network.state_dict.return_value = {"s": 1}
             trainer.train_gpu(1)
             # Should still save checkpoint at end
             s3_manager.upload_checkpoint.assert_called()
@@ -359,15 +360,16 @@ class TestSageMakerIntegration:
             ):
                 trainer = SageMakerTrainer(s3_manager)
 
-            # Mock components for mixed precision path
-            trainer.selfplay = Mock()
-            trainer.selfplay.generate_games.return_value = [[("state", "policy", 0.1)]]
-            trainer.buffer = Mock()
-            trainer.buffer.sample.return_value = [("state", "policy", 0.1)]
-            trainer.training = Mock()
-            trainer.training.train_step.return_value = 1.5
-            trainer.network = Mock()
-            trainer.network.state_dict.return_value = {"test": "state"}
+            # Mock components for mixed precision path (nested Trainer —
+            # train_gpu reads them off self.trainer)
+            trainer.trainer.selfplay = Mock()
+            trainer.trainer.selfplay.generate_games.return_value = [[("state", "policy", 0.1)]]
+            trainer.trainer.buffer = Mock()
+            trainer.trainer.buffer.sample.return_value = [("state", "policy", 0.1)]
+            trainer.trainer.training = Mock()
+            trainer.trainer.training.train_step.return_value = 1.5
+            trainer.trainer.network = Mock()
+            trainer.trainer.network.state_dict.return_value = {"test": "state"}
 
             # Test mixed precision training path
             trainer.train_gpu(1)
@@ -439,6 +441,10 @@ class TestSageMakerIntegration:
         assert mock_sm.describe_training_job.call_count == 2
 
 
+@pytest.mark.skipif(
+    boto3.session.Session().get_credentials() is None,
+    reason="live AWS access tests need configured credentials",
+)
 class TestAWSAccess:
     def test_aws_credentials(self):
         """Test if AWS credentials are properly configured"""

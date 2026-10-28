@@ -47,7 +47,7 @@ class Factory:
 
 
 class Buffer:
-    def __init__(self, capacity: int = 1024):
+    def __init__(self, capacity: int = 250_000):
         self.data = []
         self.capacity = capacity
 

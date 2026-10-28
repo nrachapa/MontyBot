@@ -51,9 +51,9 @@ class TestChessGameIntegration:
         initial_fen = state[2]
 
         # Apply move e2e4
-        _ = chess.Board(initial_fen)  # Create board to test FEN parsing
+        board = chess.Board(initial_fen)  # Create board to test FEN parsing
         move = chess.Move.from_uci("e2e4")
-        idx = MoveMapper.to_index(move)
+        idx = MoveMapper.to_index(move, board)
 
         next_state = game.apply_move(state, idx)
         next_fen = next_state[2]
@@ -84,7 +84,7 @@ class TestMCTSSunfish:
         search = SunfishSearch(game, evaluator)
         state = game.get_initial_state()
 
-        policy = search.search(state)
+        policy, _ = search.search(state)
 
         assert len(policy) == MoveMapper.ACTION_SIZE
         assert np.isclose(policy.sum(), 1.0)
@@ -101,11 +101,9 @@ class TestMCTSSunfish:
         board = chess.Board("7k/8/8/3q4/8/8/8/3R3K w - - 0 1")
         state = (None, 1, board.fen())
 
-        policy = search.search(state)
-
-        # Find move Rxd5
+        policy, _ = search.search(state)
         move = chess.Move.from_uci("d1d5")
-        idx = MoveMapper.to_index(move)
+        idx = MoveMapper.to_index(move, board)
 
         # Probability of taking queen should be high
         assert policy[idx] > 0.5

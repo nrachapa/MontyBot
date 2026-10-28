@@ -13,13 +13,14 @@ class TestConfiguration:
             MontyBotConfig(
                 filters=-1,  # Invalid
                 blocks=4,
-                input_planes=12,
-                action_size=4672,
+                input_planes=8,
+                action_size=133,
                 learning_rate=1e-3,
                 batch_size=64,
                 iterations=1000,
                 mixed_precision=True,
                 simulations=50,
+                c_discount=0.01,
                 games_per_iteration=4,
                 train_steps=2,
                 default_instance_type="test",
@@ -38,7 +39,19 @@ class TestConfiguration:
                 eval_games=20,
                 eval_threshold=0.9,
                 device="cpu",
+                gen_device="cpu",
             )
+
+        # New runtime fields (ADR-0010 / ticket 08)
+        assert CONFIG.c_discount == 0.01
+        assert CONFIG.gen_device == "cpu"
+        # 'auto' must prefer MPS on Apple Silicon (the M6 box is the default,
+        # ADR-0010) while the generation device stays CPU (ADR-0007).
+        import torch
+
+        if torch.backends.mps.is_available():
+            assert MontyBotConfig().device == "mps"
+        assert MontyBotConfig().gen_device == "cpu"
 
     def test_parameter_modification(self):
         """Test parameters can be modified"""

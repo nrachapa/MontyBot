@@ -8,7 +8,7 @@ import torch
 from src.core import Game, Network, SearchStrategy, SelfPlayStrategy, TrainingStrategy
 from src.training.game import ChessGame, MoveMapper, encode_board
 from src.training.network import AlphaZeroNet
-from src.training.search import MCTS, ParallelSelfPlay
+from src.training.search import MCTS, Node, ParallelSelfPlay
 from src.training.system import Buffer, Factory
 from src.training.trainer import Trainer
 from src.training.training import AlphaZeroTraining
@@ -61,11 +61,50 @@ class TestImplementations:
 
         # Mock game state
         state = game.get_initial_state()
-        policy = mcts.search(state)
+        policy, root, value = mcts.search(state)
 
         assert isinstance(policy, np.ndarray)
         assert policy.shape == (CONFIG.action_size,)
         assert np.isclose(policy.sum(), 1.0)
+        assert isinstance(root, Node)
+        assert -1.0 <= value <= 1.0
+
+    def test_mcts_search_reuses_warm_root(self):
+        """Root replacement (naive subtree reuse): a passed-in root that
+        already has children must NOT be re-expanded (the branch's old
+        behavior destroyed inherited statistics); its children survive with
+        their visit counts, and new visits are added on top.
+        """
+        from src.config import CONFIG
+
+        saved = CONFIG.simulations
+        CONFIG.simulations = 50  # enough for pigeonhole: some root child is revisited
+        try:
+            game = ChessGame()
+            network = Mock()
+            network.return_value = (torch.zeros(1, CONFIG.action_size), torch.zeros(1, 1))
+            mcts = MCTS(game, network)
+
+            state = game.get_initial_state()
+            policy, root, _ = mcts.search(state)
+            assert len(root.children) > 0
+            # A root child that was expanded and whose children accumulated visits.
+            move = max(root.children, key=lambda a: root.children[a].visit_count)
+            child = root.children[move]
+            inherited = {a: n.visit_count for a, n in child.children.items()}
+            assert any(v > 0 for v in inherited.values())  # test validity guard
+
+            root_visits_before = child.visit_count
+            next_state = game.apply_move(state, move)
+            policy_2, root_2, _ = mcts.search(next_state, root=child)
+            assert root_2 is child
+            # Inherited statistics survive (old code re-expanded: fresh leaves at 0).
+            for a, visits in inherited.items():
+                assert root_2.children[a].visit_count >= visits
+            # New visits were added on top of the inherited ones.
+            assert root_2.visit_count >= root_visits_before + CONFIG.simulations
+        finally:
+            CONFIG.simulations = saved
 
     @patch("src.training.search.Pool")
     def test_parallel_selfplay_mocked(self, mock_pool):
@@ -74,10 +113,71 @@ class TestImplementations:
         mock_pool.return_value.__enter__.return_value = MagicMock()
         game = ChessGame()
         search = Mock()
-        search.search.return_value = np.ones(CONFIG.action_size) / CONFIG.action_size
+        # All-zero policy: exercises the game-loop exit (a real MCTS policy is
+        # zero off the legal actions, so from_index must never see illegal ones).
+        search.search.return_value = (np.zeros(CONFIG.action_size, dtype=np.float32), None, 0.0)
         sp = ParallelSelfPlay(game, search)
         trajs = sp.generate_games(1)
         assert isinstance(trajs, list) and len(trajs) == 1
+
+    def test_play_game_stores_discounted_value_target(self):
+        """Value target = (1−2c)·v + 2c·winner·color (AlphaZero convention).
+
+        Mock search returns a constant v=0.5 with a uniform-over-legal policy
+        (so the game stays legal); the stored trajectory values must follow
+        the exact formula. Outcome-independent checks: for the first two
+        entries (opposite colors, same v): v0+v1 = 1−2c and
+        v0−v1 = 2c·winner·(s0.color − s1.color) ∈ {−4c, 0, +4c}.
+        """
+        from src.config import CONFIG
+
+        game = ChessGame()
+        c = CONFIG.c_discount
+
+        def fake_search(state, root=None):
+            actions = game.get_legal_moves(state)
+            p = np.zeros(CONFIG.action_size, dtype=np.float32)
+            if actions:
+                p[actions] = 1.0 / len(actions)
+            return p, None, 0.5
+
+        search = Mock()
+        search.search.side_effect = fake_search
+        sp = ParallelSelfPlay(game, search)
+
+        trajs = sp.generate_games(1)
+        traj = trajs[0]
+        assert len(traj) >= 2
+        (s0, _, v0), (s1, _, v1) = traj[0], traj[1]
+        assert s0[1] == 1 and s1[1] == -1  # alternating colors
+        assert np.isclose(v0 + v1, 1 - 2 * c)
+        assert abs(v0 - v1) < 1e-6 or np.isclose(abs(v0 - v1), 4 * c)
+
+    def test_play_game_reuses_subtree_between_moves(self):
+        """After move m, the next search root is the child node m led to
+        (warm statistics inherited), not a fresh empty root."""
+        from src.config import CONFIG
+
+        game = ChessGame()
+        network = Mock()
+        network.return_value = (torch.zeros(1, CONFIG.action_size), torch.zeros(1, 1))
+        mcts = MCTS(game, network)
+        calls = []
+
+        def spy(state, root=None):
+            calls.append(root)
+            return mcts.search(state, root)
+
+        wrapper = Mock()
+        wrapper.search.side_effect = spy
+        sp = ParallelSelfPlay(game, wrapper)
+        trajs = sp.generate_games(1)
+        assert len(trajs[0]) >= 2  # game lasted > 1 ply
+        # First move: fresh root. Every subsequent move: the previous child.
+        assert calls[0] is None
+        for root in calls[1:]:
+            assert isinstance(root, Node)
+            assert root.visit_count >= 1  # inherited statistics
 
     def test_training_step_tiny(self, net):
         from src.config import CONFIG
@@ -104,7 +204,7 @@ class TestImplementations:
 
         network = Mock()
         mcts = MCTS(game, network)
-        policy = mcts.search(state)
+        policy, _, _ = mcts.search(state)
 
         assert policy.sum() == 0
 
@@ -118,7 +218,7 @@ class TestImplementations:
         mock_pool.return_value.__enter__.return_value = mock_context
         game = ChessGame()
         search = Mock()
-        search.search.return_value = np.ones(CONFIG.action_size) / CONFIG.action_size
+        search.search.return_value = (np.ones(CONFIG.action_size) / CONFIG.action_size, None)
         sp = ParallelSelfPlay(game, search)
         with patch.dict("os.environ", {}, clear=True):
             trajs = sp.generate_games(1)
@@ -131,30 +231,53 @@ class TestImplementations:
 
         game = ChessGame()
         search = Mock()
-        search.search.return_value = np.zeros(CONFIG.action_size, dtype=np.float32)
+        search.search.return_value = (np.zeros(CONFIG.action_size, dtype=np.float32), None, 0.0)
         sp = ParallelSelfPlay(game, search)
         # Call private method directly to hit the break branch at line 169
         res = sp._play_game(0)
         assert res == []
 
     def test_move_mapper_promotions(self):
-        import chess
-
         from src.training.game import MoveMapper
 
-        # Test promotion moves
-        move = chess.Move(0, 63, promotion=chess.QUEEN)
-        idx = MoveMapper.to_index(move)
-        assert idx >= 4096
+        # Quiet promotion: a7a8=Q with a8 empty folds into the quiet
+        # destination-square action; the resolved move keeps the promotion.
+        board = chess.Board("8/P7/8/8/8/8/8/k6K w - - 0 1")
+        move = chess.Move(48, 56, promotion=chess.QUEEN)
+        assert move in list(board.legal_moves)
+        idx = MoveMapper.to_index(move, board)
+        assert idx < MoveMapper.CAPTURE_OFFSET
+        resolved = MoveMapper.from_index(idx, board)
+        assert resolved.to_square == 56 and resolved.promotion is not None
 
-        # Test from_index with promotion
-        move_back = MoveMapper.from_index(4200)
-        assert move_back.promotion is not None
+        # Capture promotion: a7xb8 occupies the capture half of the space.
+        board2 = chess.Board("1p6/P7/8/8/8/8/8/k6K w - - 0 1")
+        move2 = chess.Move(48, 57, promotion=chess.QUEEN)
+        assert move2 in list(board2.legal_moves)
+        idx2 = MoveMapper.to_index(move2, board2)
+        assert MoveMapper.CAPTURE_OFFSET <= idx2 < MoveMapper.CASTLE_OFFSET
+        resolved2 = MoveMapper.from_index(idx2, board2)
+        assert board2.is_capture(resolved2)
 
-        # Test invalid promotion
-        move = chess.Move(0, 63, promotion=5)
-        idx = MoveMapper.to_index(move)
-        assert idx < MoveMapper.ACTION_SIZE
+        # Round-trip: every legal move of every position maps to an in-range
+        # action that resolves to a legal move (the data-poisoning regression).
+        for start in [
+            chess.Board(),
+            chess.Board("8/Pp6/8/8/8/8/8/K6k w - - 0 1"),
+            chess.Board("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"),
+            # All four castles legal (startpos has none: f1/c1 occupied).
+            chess.Board("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1"),
+        ]:
+            for m in start.legal_moves:
+                a = MoveMapper.to_index(m, start)
+                assert 0 <= a < MoveMapper.ACTION_SIZE
+                back = MoveMapper.from_index(a, start)
+                assert back in list(start.legal_moves)
+                assert back.to_square == m.to_square
+                assert start.is_capture(back) == start.is_capture(m)
+                if a >= MoveMapper.CASTLE_OFFSET:
+                    # Castle actions cannot collide: resolution must be exact.
+                    assert back == m, (m, a, back)
 
     def test_chess_game_edge_cases(self):
         game = ChessGame()
@@ -165,10 +288,11 @@ class TestImplementations:
         winner = game.get_winner(state)
         assert winner in [-1, 0, 1]
 
-        # Test invalid move fallback
-        new_state = game.apply_move(state, 9999)
-        assert new_state is not None
-        assert new_state[1] == -1
+        # Illegal actions must raise, never silently substitute (ticket 08).
+        with pytest.raises(ValueError):
+            game.apply_move(state, 9999)
+        with pytest.raises(ValueError):
+            game.apply_move(state, 48)  # in range, but no white piece can go quietly to a7
 
     def test_parallel_selfplay_pytest_env(self):
         from src.config import CONFIG
@@ -190,14 +314,14 @@ class TestImplementations:
 
         board = chess.Board()
         encoded = encode_board(board)
-        assert encoded.shape == (104, 8, 8)
+        assert encoded.shape == (8, 8, 8)
 
 
 class TestSystem:
     def test_config_defaults(self):
         from src.config import CONFIG
 
-        assert CONFIG.input_planes == 104 and CONFIG.action_size == MoveMapper.ACTION_SIZE
+        assert CONFIG.input_planes == 8 and CONFIG.action_size == MoveMapper.ACTION_SIZE
 
     def test_factory_and_buffer(self):
         from src.config import CONFIG

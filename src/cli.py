@@ -122,7 +122,7 @@ def _evaluate_impl(is_local=False):
                     logits, _ = model(state)
                     probs = torch.softmax(logits, dim=1).cpu().numpy()[0]
                 legal_moves = list(board.legal_moves)
-                legal_indices = [MoveMapper.to_index(m) for m in legal_moves]
+                legal_indices = [MoveMapper.to_index(m, board) for m in legal_moves]
                 move = legal_moves[np.argmax(probs[legal_indices])]
             else:
                 move = random.choice(list(board.legal_moves))

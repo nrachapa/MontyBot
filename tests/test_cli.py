@@ -380,6 +380,10 @@ class TestEvaluateImpl:
         mock_board.legal_moves = [chess.Move.from_uci("e2e4"), chess.Move.from_uci("d2d4")]
         mock_board.result.return_value = "1-0"
         mock_board.ep_square = None
+        mock_board.castling_rights = ""
+        mock_board.piece_at.return_value = None
+        mock_board.is_castling.return_value = False
+        mock_board.is_capture.return_value = False
         mock_board.has_kingside_castling_rights.return_value = False
         mock_board.has_kingside_castling_rights.return_value = False
         mock_board.has_queenside_castling_rights.return_value = False
@@ -396,7 +400,7 @@ class TestEvaluateImpl:
 
         mock_probs = Mock()
         # Create a full-sized probability array
-        full_probs = np.zeros((1, 4672), dtype=np.float32)
+        full_probs = np.zeros((1, CONFIG.action_size), dtype=np.float32)
         # Set some probabilities for legal moves (indices ~700-800 for e2e4/d2d4)
         # We don't need exact indices, just need array to be large enough
         # But we do access it with legal_indices.

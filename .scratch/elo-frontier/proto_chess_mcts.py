@@ -47,22 +47,22 @@ def _cast_flags(board):
     ]
 
 
-def planes(board: chess.Board, turn_sign: int) -> np.ndarray:
-    """8 planes (ADR-0006 layout): 6 piece-type planes signed by side,
-    castling rights, en-passant target. (8x8 each.)"""
+def planes(board: chess.Board, color_sign: int) -> np.ndarray:
+    """8 planes (ADR-0006 layout): 6 piece-type planes signed by the PIECE's
+    side (+1 white / -1 black), castling rights, en-passant target. (8x8 each.)"""
     x = np.zeros((8, 8, 8), dtype=np.float32)
     for sq in range(64):
         pc = board.piece_at(chess.SQUARES[sq])
         if pc is None:
             continue
         plane = {chess.PAWN: 0, chess.KNIGHT: 1, chess.BISHOP: 2, chess.ROOK: 3, chess.QUEEN: 4, chess.KING: 5}[pc.piece_type]
-        x[plane, sq // 8, sq % 8] = turn_sign
+        x[plane, sq // 8, sq % 8] = 1.0 if pc.color == chess.WHITE else -1.0
     if _cast_flags(board)[0] or _cast_flags(board)[1]:
         x[6, 0, 4] = 1
     elif _cast_flags(board)[2] or _cast_flags(board)[3]:
         x[6, 7, 4] = 1
     if board.ep_square is not None:
-        x[7, board.ep_square // 8, board.ep_square % 8] = turn_sign
+        x[7, board.ep_square // 8, board.ep_square % 8] = 1.0
     return x
 
 

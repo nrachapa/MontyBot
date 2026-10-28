@@ -15,8 +15,8 @@ class MontyBotConfig(BaseConfig):
     # Model Architecture
     filters: int = Field(default=128, gt=0)
     blocks: int = Field(default=4, gt=0)
-    input_planes: int = Field(default=104, gt=0)
-    action_size: int = Field(default=4672, gt=0)
+    input_planes: int = Field(default=8, gt=0)
+    action_size: int = Field(default=133, gt=0)
 
     # Training Hyperparameters
     learning_rate: float = Field(default=1e-3, gt=0)
@@ -24,6 +24,7 @@ class MontyBotConfig(BaseConfig):
     iterations: int = Field(default=1000, gt=0)
     mixed_precision: bool = True
     simulations: int = Field(default=10, gt=0)
+    c_discount: float = Field(default=0.01, ge=0.0, lt=0.5)  # AlphaZero: value target = (1-2c)v + 2c*result
     games_per_iteration: int = Field(default=128, gt=0)
     train_steps: int = Field(default=2, gt=0)
 
@@ -49,13 +50,18 @@ class MontyBotConfig(BaseConfig):
     eval_threshold: float = Field(default=0.9, gt=0, le=1.0)
 
     # Runtime
-    device: str = "auto"
+    # 'auto' prefers MPS on Apple Silicon (the M6 box is the default hardware,
+    # ADR-0010) for the training steps. The generation device is separate:
+    # unbatched MCTS is ~1.7x slower on MPS than CPU (ADR-0007), so self-play
+    # stays on CPU until ticket 10's vectorized loop.
+    device: str = Field(default="auto", validate_default=True)
+    gen_device: str = Field(default="cpu", validate_default=True)
 
-    @field_validator("device")
+    @field_validator("device", "gen_device")
     @classmethod
     def resolve_device(cls, v):
         if v == "auto":
-            return "cuda" if torch.cuda.is_available() else "cpu"
+            return "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
         return v
 
     def model_post_init(self, __context):

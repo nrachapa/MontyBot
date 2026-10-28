@@ -1,3 +1,4 @@
+import multiprocessing as mp
 import os
 from multiprocessing import Pool
 from typing import Any
@@ -12,25 +13,21 @@ from .batch_manager import BatchManager
 from .game import MoveMapper
 
 WORKER_CLIENT = None
-# Global BatchManager and clients - set before Pool creation for inheritance
-_GLOBAL_MANAGER = None
-_GLOBAL_CLIENTS = []
 
 
-def worker_init():
-    """Initialize worker with a pre-created client from the global list."""
+def worker_init(clients):
+    """Initializer: pick this worker's BatchClient. Clients are passed via
+    initargs, not module globals — globals do not cross a spawn boundary
+    (macOS/Windows), and an empty list here zero-division-killed every
+    worker, hanging pool.map forever."""
     global WORKER_CLIENT
-    # Use the process's identity to determine which client to use
-    # current_process()._identity is a tuple like (1,) for worker 1, (2,) for worker 2, etc.
-    import multiprocessing
-    identity = multiprocessing.current_process()._identity
-    worker_num = identity[0] - 1 if identity else 0  # _identity is 1-indexed
-
-    # Access the global client for this worker
-    WORKER_CLIENT = _GLOBAL_CLIENTS[worker_num % len(_GLOBAL_CLIENTS)]
-    # Optimization: Set device to CPU in worker to avoid unnecessary GPU transfer
-    # since the actual inference happens in the main process
-    CONFIG.device = "cpu"
+    # _identity is a tuple like (1,) for worker 1, (2,) for worker 2, etc.
+    identity = mp.current_process()._identity
+    worker_num = identity[0] - 1 if identity else 0
+    WORKER_CLIENT = clients[worker_num % len(clients)]
+    # Optimization: workers only build leaf tensors on the generation device;
+    # inference happens in the main-process BatchManager.
+    CONFIG.device = CONFIG.gen_device
 
 
 class Node:
@@ -60,7 +57,7 @@ class MCTS(SearchStrategy):
         self.dirichlet_alpha = 0.3
         self.dirichlet_epsilon = 0.25
 
-    def search(self, state, root=None) -> tuple[np.ndarray, Any]:
+    def search(self, state, root=None) -> tuple[np.ndarray, Any, float]:
         if root is None:
             root = Node(0)
             root.state = state
@@ -68,9 +65,23 @@ class MCTS(SearchStrategy):
         # Add Dirichlet noise to root
         legal_moves = self.game.get_legal_moves(state)
         if not legal_moves:
-            return np.zeros(CONFIG.action_size, dtype=np.float32), root
+            return np.zeros(CONFIG.action_size, dtype=np.float32), root, 0.0
 
-        self._expand(root)
+        if root.children:
+            # Root replacement (naive subtree reuse): the passed root's state IS
+            # the current position, so its children are valid — only its policy
+            # is stale (the previous player's, noise-applied). Refresh priors
+            # from the current player's net (masked over existing children) and
+            # let the noise draw below add a fresh Dirichlet perturbation. Do
+            # NOT re-expand: that would destroy the inherited statistics.
+            tensor = torch.from_numpy(root.state[0]).float().unsqueeze(0).to(CONFIG.device)
+            with torch.no_grad():
+                probs = torch.softmax(self.network(tensor)[0], dim=1).cpu().numpy()[0]
+            total = float(sum(probs[a] for a in root.children)) or 1.0
+            for action, child in root.children.items():
+                child.prior = probs[action] / total
+        else:
+            self._expand(root)
 
         # Apply noise
         noise = np.random.dirichlet([self.dirichlet_alpha] * len(root.children))
@@ -112,7 +123,7 @@ class MCTS(SearchStrategy):
         if policy_sum > 0:
             policy /= policy_sum
 
-        return policy, root
+        return policy, root, root.value()
 
     def _select_child(self, node: Node) -> tuple[int, Node]:
         best_score = -float("inf")
@@ -132,11 +143,13 @@ class MCTS(SearchStrategy):
     def _expand(self, node: Node) -> float:
         # Check if terminal
         if self.game.is_terminal(node.state):
-            return self.game.get_winner(node.state)
+            # Value is from the leaf's side-to-move perspective (matches the
+            # training target winner*color and _backpropagate's sign logic).
+            return self.game.get_winner(node.state) * node.state[1]
 
         # Evaluate with network
         # Network expects batch (N, C, H, W)
-        tensor = torch.from_numpy(node.state[0]).unsqueeze(0).to(CONFIG.device)
+        tensor = torch.from_numpy(node.state[0]).unsqueeze(0).to(torch.device(CONFIG.gen_device))
         with torch.no_grad():
             logits, value = self.network(tensor)
             probs = torch.softmax(logits, dim=1).cpu().numpy()[0]
@@ -220,6 +233,9 @@ class SunfishSearch(SearchStrategy):
         turn_color = 1 if board.turn == chess.WHITE else -1
 
         for move in legal_moves:
+            # Index from the PRE-push board: is_capture() is decided by the
+            # destination occupancy before the move is made.
+            idx = MoveMapper.to_index(move, board)
             board.push(move)
 
             # Evaluate from White's perspective
@@ -240,7 +256,7 @@ class SunfishSearch(SearchStrategy):
             score = raw_score * turn_color
 
             scores.append(score)
-            indices.append(MoveMapper.to_index(move))
+            indices.append(idx)
 
             board.pop()
 
@@ -253,7 +269,7 @@ class SunfishSearch(SearchStrategy):
 
         for idx, prob in zip(indices, probs):
             if idx < self.action_size:
-                p[idx] = prob
+                p[idx] += prob  # add: multiple moves can map to one action
 
         return p, None
 
@@ -303,7 +319,7 @@ class AlphaBetaSearch(SearchStrategy):
             alpha = max(alpha, score)
 
         if best_move:
-            idx = MoveMapper.to_index(best_move)
+            idx = MoveMapper.to_index(best_move, board)
             if idx < self.action_size:
                 p[idx] = 1.0
 
@@ -367,25 +383,19 @@ class ParallelSelfPlay(SelfPlayStrategy):
         # Initialize BatchManager
         # Reserve cores for GPU manager and OS
         num_workers = max(1, (os.cpu_count() or 1) - 2)
-        manager = BatchManager(self.search.network, CONFIG.device, batch_size=CONFIG.batch_size, timeout=0.01)
+        manager = BatchManager(self.search.network, torch.device(CONFIG.gen_device), batch_size=CONFIG.batch_size, timeout=0.01)
         manager.start()
 
         try:
-            # Set global variables before creating Pool so they're inherited by workers
-            global _GLOBAL_MANAGER, _GLOBAL_CLIENTS
-            _GLOBAL_MANAGER = manager
-            _GLOBAL_CLIENTS = [manager.create_client() for _ in range(num_workers)]
-
-            # Create pool with initializer that assigns each worker its client
-            with Pool(num_workers, initializer=worker_init, initargs=()) as pool:
+            clients = [manager.create_client() for _ in range(num_workers)]
+            with Pool(num_workers, initializer=worker_init, initargs=(clients,)) as pool:
                 return pool.map(self._play_game, range(n_games))
         finally:
             manager.stop()
-            # Clean up globals
-            _GLOBAL_MANAGER = None
-            _GLOBAL_CLIENTS = []
 
     def _play_game(self, seed: int):
+        """Play one full game; trajectory values are the true game outcome
+        from the perspective of the player who moved into each position."""
         # Patch network if running in worker with BatchClient
         if WORKER_CLIENT is not None:
             self.search.network = WORKER_CLIENT
@@ -394,15 +404,21 @@ class ParallelSelfPlay(SelfPlayStrategy):
         state = self.game.get_initial_state()
         traj = []
         root = None
-        # Minimal trajectory (few plies) to keep runtime tiny
-        for _ in range(8):  # Longer trajectories for better learning
-            policy, root = self.search.search(state, root)
+        while not self.game.is_terminal(state):
+            # Subtree reuse (ticket 10 scope): after move m, the next player's
+            # search root is the child node m led to (warm statistics); its
+            # state IS the current position, search() refreshes its policy.
+            policy, new_root, v = self.search.search(state, root)
             if policy.sum() == 0:
                 break
             move = int(rng.choice(len(policy), p=policy / policy.sum()))
-            traj.append((state, policy))
+            traj.append((state, policy, v))
+            root = new_root.children.get(move) if new_root is not None else None
             state = self.game.apply_move(state, move)
 
-            # Update root for next search (subtree reuse)
-            root = root.children[move] if root is not None and move in root.children else None
-        return [(s, p, 0.0) for (s, p) in traj]  # dummy zero values
+        winner = self.game.get_winner(state)
+        # Value target = (1-2c)v + 2c*winner*color (AlphaZero convention):
+        # the discounted search value bootstraps the value head toward a
+        # positional read, anchored to the actual game outcome.
+        c = CONFIG.c_discount
+        return [(s, p, (1 - 2 * c) * v + 2 * c * winner * s[1]) for (s, p, v) in traj]

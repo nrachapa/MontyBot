@@ -12,14 +12,6 @@ class Trainer:
 
         self.device = torch.device(CONFIG.device)
         self.network = Factory.create_network("alphazero")
-        # Try to compile the network for better performance
-        # Note: torch.compile (Dynamo) is not supported on Python 3.12+
-        try:
-            if hasattr(torch, "compile"):
-                self.network = torch.compile(self.network)
-        except RuntimeError:
-            # Dynamo not supported, continue with uncompiled network
-            pass
         self.game = Factory.create_game("chess")
         self.search = Factory.create_search("mcts", self.game, network=self.network)
         self.selfplay = Factory.create_selfplay("parallel", self.game, self.search)
