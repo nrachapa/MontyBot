@@ -1,3 +1,11 @@
+---
+id: adr-0009
+type: architecture-design
+title: "ADR-0009: Network scale (progressive f64/b2 → f128/b4)"
+status: draft
+parent: goal
+---
+
 # Network scale: progressive f64/b2 → f128/b4
 
 The network is the one "bigger is better" variable left open, so we measured instead of guessing: three candidate AlphaZero nets at the 8-plane/133-action chess shape (ADR-0006) — **A: 64 filters / 2 residual blocks, B: 128/4, C: 256/8** — all from scratch, same dataset, same budgets, on MPS. Measured (median of repeated runs): generation cost A ≈ 0.5–0.8 s/move, B ≈ 0.66–0.70 s/move, C ≈ 1.27–1.32 s/move (100 sims, unbatched proto); per-step training cost A 3.6–3.9 ms, B 5.8–5.9 ms, C 84–95 ms (batch 64). The strength tiebreak was **unmeasurable at session scale** — an honest zero, not a result: the prototype's 1200-move dataset came from untrained nets, the KL objective went NaN on zero-probability targets, and a 12-game win-rate has no power (both "win-rates" 0.50).

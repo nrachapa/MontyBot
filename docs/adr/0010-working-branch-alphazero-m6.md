@@ -1,3 +1,11 @@
+---
+id: adr-0010
+type: architecture-design
+title: "ADR-0010: Work on the `alphazero` branch; local-first on Apple M6/Metal"
+status: draft
+parent: goal
+---
+
 # 10. Work on the `alphazero` branch; local-first on Apple M6/Metal
 
 - Status: accepted

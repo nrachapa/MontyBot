@@ -1,3 +1,11 @@
+---
+id: glossary
+type: goal-and-requirements
+title: MontyBot domain glossary
+status: draft
+parent: goal
+---
+
 # MontyBot
 
 An AlphaZero-style chess engine trained entirely by self-play on local hardware.
