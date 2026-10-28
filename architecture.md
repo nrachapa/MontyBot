@@ -27,7 +27,8 @@ down into them from `src/training` or `src/infra`'s internals.
 ## Device split (the load-bearing config decision)
 
 `CONFIG.device` (`auto` → MPS) drives **training** steps; `CONFIG.gen_device` (`cpu`) drives
-**generation**. Unbatched MCTS is ~1.7× slower on MPS than CPU (adr-0007), so self-play stays
+**generation**. Unbatched MCTS is slower on MPS than CPU — measured 1.14× (216 vs 190 ms/move,
+32 sims, f128/b4, 2026-10-28; the original 1.7× figure predates the 8-plane encoding) — so self-play stays
 on CPU until the vectorized loop lands; ORT/CPU is reserved for evaluation (adr-0005) and
 terminal play (adr-0003). The split lives only in `src/config`.
 
