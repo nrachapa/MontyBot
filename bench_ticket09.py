@@ -83,4 +83,7 @@ if __name__ == "__main__":
     for d in ("cpu", "mps"):
         bench_move(d, compile_net=False)
     if torch.backends.mps.is_available():
-        bench_move("mps", compile_net=True)
+        try:
+            bench_move("mps", compile_net=True)
+        except torch._dynamo.exc.BackendCompilerFailed:
+            print("mcts move (32 sims, f128/b4, mps , compile=1): torch.compile unavailable (inductor: Device mps not supported)")
