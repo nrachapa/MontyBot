@@ -53,6 +53,19 @@ class TestConfiguration:
             assert MontyBotConfig().device == "mps"
         assert MontyBotConfig().gen_device == "cpu"
 
+    def test_device_resolution_priority(self):
+        """'auto' resolves mps > cuda > cpu, and explicit values pass
+        through untouched (ticket 09, ADR-0010)."""
+        import torch
+
+        expected = (
+            "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
+        )
+        assert MontyBotConfig().device == expected
+        assert MontyBotConfig(device="cpu").device == "cpu"
+        assert MontyBotConfig(device="mps").device == "mps"
+        assert MontyBotConfig(device="auto", gen_device="mps").gen_device == "mps"
+
     def test_parameter_modification(self):
         """Test parameters can be modified"""
         original = CONFIG.filters
