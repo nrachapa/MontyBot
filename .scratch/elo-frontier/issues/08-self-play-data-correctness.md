@@ -1,6 +1,6 @@
 Type: implementation
-Status: ready
-Blocked by: (none — first in the new chain)
+Status: done
+
 Label: wayfinder:build
 
 # Self-play data correctness (the branch's data is not learnable)

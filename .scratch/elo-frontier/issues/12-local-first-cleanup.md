@@ -1,5 +1,5 @@
 Type: implementation
-Status: ready
+Status: done
 Blocked by: (independent)
 Label: wayfinder:build
 

@@ -1,0 +1,6 @@
+WARNING: checkpoint /Users/norain/workspace/MontyBot/model.pt does not match the current net shape — using random weights (loop cost, not policy quality)
+[Ticket 10] device=mps (weights: RANDOM)
+[Ticket 10]  32 sims | flat   2319.9 ms/move (33 calls, 1011 leaves,  2.29 ms/leaf, 4 nodes) | unbatched    171.1 ms/move ( 5.35 ms/leaf)
+[Ticket 10] 100 sims | flat   7896.4 ms/move (101 calls, 3187 leaves,  2.48 ms/leaf, 311 nodes) | unbatched    419.7 ms/move ( 4.20 ms/leaf)
+[Ticket 10] ~800 leaves | flat   1825.9 ms/move (26 calls, 787 leaves,  2.32 ms/leaf) | unbatched   5359.4 ms/move ( 6.70 ms/leaf) | same-work ratio 0.34x
+  ADR-0007 anchor (M6, ticket 09): unbatched 190 ms/move CPU / 216 ms/move MPS at 32 sims.

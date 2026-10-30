@@ -1,6 +1,5 @@
 Type: research
-Status: blocked
-Blocked by: 08
+Status: done
 Label: wayfinder:research
 
 # M6/Metal local port + throughput measurement

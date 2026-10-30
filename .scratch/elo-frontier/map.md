@@ -49,7 +49,7 @@ Resolved by ticket 08 (2026-10-28): trajectories now carry real game outcomes �
 - [x] 07-vectorized-mcts (resolved → ADR-0007)
 - [x] 08-self-play-data-correctness (resolved 2026-10-28: 133-action MoveMapper with legal promotions, illegal action raises, real full games, 250k ring buffer)
 - [x] 09-mps-local-port (resolved 2026-10-28: device resolution → mps; MPS trains fp32 — torch 2.2 has no MPS autocast/GradScaler and fp16 BatchNorm aborts the Metal runtime, so `mixed_precision` = cuda-autocast / no-op elsewhere; bench: train MPS 8.7×, move gen stays CPU, torch.compile unsupported on mps; guarded by tests/test_mps.py)
-- [ ] 10-vectorized-mcts-implementation — apply ADR-0007 to `src/training/search.py` per the proto (08, 09 resolved; blocks 13) — **next session specs this**, alongside the concurrent-engine part of ticket 08's ADR-0008
+- [x] 10-vectorized-mcts-implementation (resolved 2026-10-28: `VectorizedMCTS` in search.py — flat pool + batched PUCT + one batched net call per iteration, in-worker inference, lazy/strip-arrays pool; ADR-0007 M6 bench: flat-MPS 2.9× unbatched-CPU; blocks 13)
 - [ ] 11-eval-and-uci — ADR-0005 reference-protocol eval + UCI terminal play per ADR-0003 (08, 09 resolved; blocks 13)
 - [ ] 12-local-first-cleanup — externalize/remove hardcoded AWS account + role; make cloud an opt-in flag (independent)
 - [ ] 13-cost-curve-run — the ≤24h local training run with the cost-curve report the destination asks for (blocked by 10, 11)
