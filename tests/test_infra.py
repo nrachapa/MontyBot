@@ -475,6 +475,8 @@ class TestAWSAccess:
         """Test if SageMaker role exists"""
         config = load_config()
         role_arn = config["aws"]["credentials"]["role_arn"]
+        if role_arn is None:
+            pytest.skip("AWS_ROLE_ARN not set (role is resolved from env, ticket 12)")
 
         try:
             iam = boto3.client("iam")

@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timezone
 
 import torch
@@ -40,8 +41,11 @@ class MontyBotConfig(BaseConfig):
 
     # AWS Resources
     region: str = Field(default="us-west-2", min_length=1)
-    account_id: str = Field(default="086325823665", min_length=1)
-    role_arn: str = Field(default="arn:aws:iam::086325823665:role/Admin", min_length=1)
+    # No hardcoded credentials (ADR-0004 local-first): read from the
+    # environment. None = unset → SageMaker falls back to its default
+    # execution role; the cloud path is an explicit `--cloud` opt-in.
+    account_id: str | None = Field(default=os.environ.get("AWS_ACCOUNT_ID"))
+    role_arn: str | None = Field(default=os.environ.get("AWS_ROLE_ARN"))
     bucket: str = Field(default="montybot-training", min_length=1)
     prefix: str = Field(default=f"montybot-gpu-training-{utc_time}", min_length=1)
 
