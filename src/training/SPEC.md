@@ -37,8 +37,10 @@ The whole AlphaZero loop:
 
 - **MCTS is the unbatched per-leaf form**: batch-1 net call per leaf, proxied through the
   queue-based `batch_manager.py` — the "naive batching" adr-0007 measured 10× worse. The
-  vectorized design (flat numpy tree, batched PUCT, one batched call per iteration) exists
-  only in `.scratch/elo-frontier/proto_chess_mcts.py` until ticket 10 lands.
+  vectorized form (flat numpy pool, batched PUCT, one batched call per iteration) is
+  `VectorizedMCTS` (search.py), the trainer's default, and runs in-worker per ADR-0007
+  (M6 measurement: flat-MPS fastest, 2.9× over unbatched-CPU) — `batch_manager.py` is
+  now only exercised by the unbatched `MCTS` path.
 - **Sequential data engine**: the Trainer runs generation then training on one static
   network per iteration; adr-0008's concurrent live-weights engine (concurrent MPS
   gen+train, progressive 25→100→250 sims) is not built.

@@ -57,9 +57,19 @@ class Network(ABC):
 
 
 class SearchStrategy(ABC):
+    """Game search policy.
+
+    Given a state and (optionally) the warm root of the previous search,
+    return ``(policy, root, value)``: a move-selection policy, the searched
+    root object (None for heuristic strategies that keep no tree), and the
+    position value in the searcher's color perspective. The self-play loop
+    passes the child node a move led to back as the next root (subtree
+    reuse); roots are opaque to the loop beyond ``root.children`` keyed by
+    action index.
+    """
+
     @abstractmethod
-    @abstractmethod
-    def search(self, state: Any, root: Any = None) -> tuple[np.ndarray, Any]: ...
+    def search(self, state: Any, root: Any = None) -> tuple[np.ndarray, Any, float]: ...
 
 
 class SelfPlayStrategy(ABC):

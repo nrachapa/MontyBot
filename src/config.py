@@ -55,9 +55,11 @@ class MontyBotConfig(BaseConfig):
 
     # Runtime
     # 'auto' prefers MPS on Apple Silicon (the M6 box is the default hardware,
-    # ADR-0010) for the training steps. The generation device is separate:
-    # unbatched MCTS is ~1.7x slower on MPS than CPU (ADR-0007), so self-play
-    # stays on CPU until ticket 10's vectorized loop.
+    # ADR-0010) for the training steps. Generation runs where the flat
+    # vectorized MCTS (ticket 10) is fastest: the ADR-0007 M6 measurement put
+    # flat-MPS first (2.9x over unbatched-CPU), so set gen_device='mps' for
+    # local runs; the default stays 'cpu' (cloud containers have no MPS) and
+    # 'cuda' for cloud jobs.
     device: str = Field(default="auto", validate_default=True)
     gen_device: str = Field(default="cpu", validate_default=True)
 

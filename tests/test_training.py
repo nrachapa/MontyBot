@@ -8,7 +8,7 @@ import torch
 from src.core import Game, Network, SearchStrategy, SelfPlayStrategy, TrainingStrategy
 from src.training.game import ChessGame, MoveMapper, encode_board
 from src.training.network import AlphaZeroNet
-from src.training.search import MCTS, Node, ParallelSelfPlay
+from src.training.search import MCTS, Node, ParallelSelfPlay, VectorizedMCTS
 from src.training.system import Buffer, Factory
 from src.training.trainer import Trainer
 from src.training.training import AlphaZeroTraining
@@ -527,3 +527,101 @@ class TestExtensibility:
         x = torch.randn(1, 12, 8, 8)
         logits, v = net(x)
         assert logits.shape == (1, CONFIG.action_size) and v.shape == (1, 1)
+
+
+class TestVectorizedMCTS:
+    """The ADR-0007 flat vectorized MCTS, at the search + self-play seams."""
+
+    @pytest.fixture
+    def vnet(self):
+        from src.config import CONFIG
+
+        saved = (CONFIG.filters, CONFIG.blocks)
+        CONFIG.filters, CONFIG.blocks = 16, 1
+        net = AlphaZeroNet()
+        CONFIG.filters, CONFIG.blocks = saved
+        return net
+
+    def test_search_returns_3tuple_with_masked_policy(self, vnet):
+        from src.config import CONFIG
+
+        game = ChessGame()
+        search = VectorizedMCTS(game, vnet, simulations=10)
+        state = game.get_initial_state()
+        policy, root, value = search.search(state)
+        assert isinstance(policy, np.ndarray)
+        assert policy.shape == (CONFIG.action_size,)
+        assert np.isclose(policy.sum(), 1.0)
+        # Legal-move coverage identical to the game: zero off-legal actions.
+        legal = set(game.get_legal_moves(state))
+        illegal = [i for i in range(CONFIG.action_size) if i not in legal]
+        assert policy[illegal].sum() == 0.0
+        assert len(root.children) > 0
+        assert -1.0 <= value <= 1.0
+
+    def test_warm_root_reuse_keeps_statistics(self, vnet):
+        """Root-replacement (subtree reuse): the passed child comes back
+        as the new root (identity), inherited visits survive, and new
+        visits are added on top — the branch MCTS's same contract."""
+        from src.config import CONFIG
+
+        saved = CONFIG.simulations
+        CONFIG.simulations = 128  # several batched iterations at batch 32
+        try:
+            game = ChessGame()
+            search = VectorizedMCTS(game, vnet, simulations=128)
+            state = game.get_initial_state()
+            _, root, _ = search.search(state)
+            move = max(root.children, key=lambda a: root.children[a].visit_count)
+            child = root.children[move]
+            inherited = {a: n.visit_count for a, n in child.children.items()}
+            child_visits = child.visit_count
+            next_state = game.apply_move(state, move)
+            _, root_2, _ = search.search(next_state, root=child)
+            assert root_2 is child
+            for a, visits in inherited.items():
+                assert root_2.children[a].visit_count >= visits
+            assert root_2.visit_count >= child_visits
+        finally:
+            CONFIG.simulations = saved
+
+    def test_fen_mismatch_starts_fresh_root(self, vnet):
+        game = ChessGame()
+        search = VectorizedMCTS(game, vnet, simulations=10)
+        s0 = game.get_initial_state()
+        _, r0, _ = search.search(s0)
+        a0 = game.get_legal_moves(s0)[0]  # a guaranteed-legal action
+        s1 = game.apply_move(s0, a0)
+        s1 = game.apply_move(s1, game.get_legal_moves(s1)[0])  # never expanded by the s0 search
+        _, r1, _ = search.search(s1, root=r0)  # stale root
+        assert r1 is not r0
+        assert len(r1.children) > 0
+
+    def test_terminal_state_zero_policy(self, vnet):
+        # Fool's Mate: rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3
+        board = chess.Board("rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3")
+        assert board.is_checkmate()
+        game = ChessGame()
+        state = (encode_board(board), 1, board.fen(), board)
+        search = VectorizedMCTS(game, vnet, simulations=10)
+        policy, _, value = search.search(state)
+        assert policy.sum() == 0
+        assert value != 0  # a real winner, own-color perspective
+
+    def test_selfplay_game_trajectory(self, vnet):
+        """One real self-play game through ParallelSelfPlay: legal moves
+        only, alternating colors, value targets in [-1, 1]."""
+        from src.config import CONFIG
+
+        game = ChessGame()
+        search = VectorizedMCTS(game, vnet, simulations=10)
+        sp = ParallelSelfPlay(game, search)
+        trajs = sp.generate_games(1)
+        assert len(trajs) == 1
+        traj = trajs[0]
+        assert len(traj) >= 2
+        (s0, p0, v0), (s1, p1, v1) = traj[0], traj[1]
+        assert s0[1] == 1 and s1[1] == -1
+        assert -1.0 <= v0 <= 1.0 and -1.0 <= v1 <= 1.0
+        legal = set(game.get_legal_moves(s0))
+        assert p0[[i for i in range(CONFIG.action_size) if i not in legal]].sum() == 0.0

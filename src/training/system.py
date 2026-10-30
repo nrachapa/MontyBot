@@ -3,14 +3,14 @@ import numpy as np
 from .evaluation import SunfishEvaluation, ZeroEvaluation
 from .game import ChessGame
 from .network import AlphaZeroNet
-from .search import MCTS, AlphaBetaSearch, ParallelSelfPlay, SunfishSearch
+from .search import MCTS, VectorizedMCTS, AlphaBetaSearch, ParallelSelfPlay, SunfishSearch
 from .training import AlphaZeroTraining
 
 
 class Factory:
     _networks = {"alphazero": AlphaZeroNet}
     _games = {"chess": ChessGame}
-    _search = {"mcts": MCTS, "sunfish": SunfishSearch, "alphabeta": AlphaBetaSearch}
+    _search = {"mcts": MCTS, "vectorized_mcts": VectorizedMCTS, "sunfish": SunfishSearch, "alphabeta": AlphaBetaSearch}
     _selfplay = {"parallel": ParallelSelfPlay}
     _training = {"alphazero": AlphaZeroTraining}
     _evaluation = {"sunfish": SunfishEvaluation, "zero": ZeroEvaluation}
@@ -29,7 +29,7 @@ class Factory:
             return cls._search[name](game, evaluator)
         if name == "alphabeta":
             return cls._search[name](game, evaluator)
-        if name == "mcts":
+        if name in ("mcts", "vectorized_mcts"):
             return cls._search[name](game, network)
         return cls._search[name](game)
 

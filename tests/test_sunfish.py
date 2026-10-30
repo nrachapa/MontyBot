@@ -84,7 +84,7 @@ class TestMCTSSunfish:
         search = SunfishSearch(game, evaluator)
         state = game.get_initial_state()
 
-        policy, _ = search.search(state)
+        policy, _, _ = search.search(state)
 
         assert len(policy) == MoveMapper.ACTION_SIZE
         assert np.isclose(policy.sum(), 1.0)
@@ -101,7 +101,7 @@ class TestMCTSSunfish:
         board = chess.Board("7k/8/8/3q4/8/8/8/3R3K w - - 0 1")
         state = (None, 1, board.fen())
 
-        policy, _ = search.search(state)
+        policy, _, _ = search.search(state)
         move = chess.Move.from_uci("d1d5")
         idx = MoveMapper.to_index(move, board)
 

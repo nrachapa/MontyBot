@@ -13,7 +13,7 @@ class Trainer:
         self.device = torch.device(CONFIG.device)
         self.network = Factory.create_network("alphazero")
         self.game = Factory.create_game("chess")
-        self.search = Factory.create_search("mcts", self.game, network=self.network)
+        self.search = Factory.create_search("vectorized_mcts", self.game, network=self.network)
         self.selfplay = Factory.create_selfplay("parallel", self.game, self.search)
         self.training = Factory.create_training("alphazero", self.network, self.device)
         self.buffer = Buffer()
