@@ -8,4 +8,4 @@ Replace `src/training/search.py`'s per-leaf MCTS (batch-1 net call per leaf + qu
 
 Reference implementation: `.scratch/elo-frontier/proto_flat_mcts.py` (the ADR-0007 prototype). Landed as `VectorizedMCTS` in `src/training/search.py` (flat node pool, batched PUCT, one batched net call per iteration, in-worker inference — no `batch_manager.py` proxy); `MCTS` remains as the `search_strategy` override. `batch_manager.py` is now only exercised by the unbatched path.
 
-Acceptance: games/h on MPS ≥ proto parity at equal sims (median of ≥3); legal-move coverage identical (python-chess, ADR-0006); the 08-corrected self-play path feeds it unmodified.
+Acceptance: games/h on MPS ≥ proto parity at equal sims (median of ≥3) — met: 80.8 vs unbatched-CPU 5.5 games/h at sims=250 (14.7×; `bench_prod_m6.py`); legal-move coverage identical (python-chess, ADR-0006); the 08-corrected self-play path feeds it unmodified.

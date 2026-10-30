@@ -1,0 +1,5 @@
+net: 1.21M params, sims=250
+flat-MPS   (VectorizedMCTS): median 45s/game -> 80.8 games/h
+flat-CPU   (VectorizedMCTS): median 75s/game -> 47.8 games/h
+unbatched-CPU (MCTS): median 651s/game -> 5.5 games/h
+done

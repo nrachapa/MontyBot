@@ -19,6 +19,8 @@ Self-play generation uses a fully vectorized MCTS: a flat numpy node pool (one a
 | 32 leaves, MPS | 2.29 ms/leaf | 5.35 ms/leaf | 0.43× |
 | ~800 leaves, MPS | 2.32 ms/leaf (1.83 s/move) | 6.70 ms/leaf (5.36 s/move) | **0.34× (2.9× faster)** |
 
+**Acceptance, 2026-10-30, M6, 1.21M-param production net, sims=250, median of 3 full games (`.scratch/elo-frontier/bench_prod_m6.py`):** flat-MPS **45 s/game = 80.8 games/h** — 14.7× the unbatched-CPU baseline (5.5 games/h), 1.7× flat-CPU. Batch amortization grows with net size and leaves/iteration, so the production net shows far more than the random-weight proto's 2.9×. Acceptance bar (≥ proto parity on MPS at equal sims) met; `gen_device=mps` is the local default, `cuda` for cloud jobs.
+
 The batch amortization materializes only on MPS (a 32-leaf call ≈ 2× a 1-leaf call); on CPU a 32-leaf call costs ≈32× a 1-leaf call (the 1.2 M-param net's matmul is too small to amortize), so the flat loop's CPU win is the per-leaf Python elimination alone. Consequences, all implemented in ticket 10:
 
 - **`simulations` means leaf visits** in both strategies: a flat search at `simulations=N` runs `ceil(N / 32)` batched iterations, so the config knob keeps one meaning across `MCTS` and `VectorizedMCTS`.
