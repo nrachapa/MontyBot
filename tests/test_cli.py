@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock, Mock, patch
 
+import chess
 import numpy as np
 import pytest
 from click.testing import CliRunner
@@ -85,7 +86,7 @@ class TestClickCLI:
         result = self.runner.invoke(cli, ["evaluate", "--games", "50", "--threshold", "0.8"])
 
         assert result.exit_code == 0
-        assert "🎲 Starting evaluation..." in result.output
+        assert "Starting evaluation" in result.output
         assert CONFIG.eval_games == 50
         assert CONFIG.eval_threshold == 0.8
         mock_evaluate.assert_called_once()
@@ -187,7 +188,7 @@ class TestCLIIntegration:
         result = runner.invoke(cli, ["evaluate"])
 
         assert result.exit_code == 0
-        assert "🎲 Starting evaluation..." in result.output
+        assert "Starting evaluation" in result.output
         assert "Win Rate: 75.0%" in result.output
         assert "✅ Model OK!" in result.output
         mock_evaluate_impl.assert_called_once()
@@ -209,7 +210,7 @@ class TestCLIIntegration:
         result = runner.invoke(cli, ["evaluate"])
 
         assert result.exit_code == 0
-        assert "🎲 Starting evaluation..." in result.output
+        assert "Starting evaluation" in result.output
         assert "Win Rate: 45.0%" in result.output
         assert "⚠️ Need training" in result.output
         mock_evaluate_impl.assert_called_once()
@@ -418,3 +419,42 @@ class TestEvaluateImpl:
             assert mock_board.push.call_count == 2
         finally:
             CONFIG.eval_games = original_games
+
+
+class TestOpponentSelection:
+    """The evaluate --opponent seam: random (existing) vs the repo heuristic
+    (alpha-beta + piece counts). A trained model's true strength signal comes
+    from beating the heuristic, not random play (any net beats random)."""
+
+    def test_heuristic_opponent_is_legal(self):
+        import src.cli as cli_mod
+
+        board = chess.Board()
+        move = cli_mod._opponent_move(board, "heuristic")
+        assert move in board.legal_moves
+
+    def test_random_opponent_is_legal(self):
+        import src.cli as cli_mod
+
+        board = chess.Board()
+        for _ in range(10):
+            moves = list(board.legal_moves)
+            assert cli_mod._opponent_move(board, "random") in moves
+
+    def test_heuristic_takes_hanging_rook(self):
+        import src.cli as cli_mod
+
+        # A white rook is dropped on c6 (the c7 pawn's square, vacated first);
+        # c6 is undefended, so a capture is a net material gain. The old g2
+        # version was untestable: nothing from black's start position can reach
+        # g2, so declining was *correct*. The heuristic must play for the
+        # capture, not a quiet developing move — this is the check that the
+        # negamax sign convention maximizes its own side, not inverts the tree.
+        board = chess.Board()
+        board.remove_piece_at(chess.C6)
+        board.set_piece_at(chess.C6, chess.Piece(chess.ROOK, chess.WHITE))
+        board.push(chess.Move.from_uci("a1a2"))  # black to move
+        move = cli_mod._opponent_move(board, "heuristic")
+        # A capture of the rook on c6, not a quiet developing move.
+        assert move.to_square == chess.C6
+        assert board.is_capture(move)

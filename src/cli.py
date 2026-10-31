@@ -10,8 +10,28 @@ import torch
 
 from src.config import CONFIG
 from src.infra.s3_manager import S3Manager
-from src.training.game import MoveMapper, encode_board
+from src.training.game import ChessGame, MoveMapper, encode_board
+from src.training.evaluation import SunfishEvaluation
+from src.training.search import AlphaBetaSearch
 from src.training.system import Factory
+
+_HEURISTIC_SEARCH = None  # lazy: the system import pulls the full training graph
+
+
+def _opponent_move(board: "chess.Board", opponent: str) -> "chess.Move":
+    """Pick the opponent's move. 'random' is the legacy baseline; 'heuristic'
+    is the repo's alpha-beta + piece-count evaluator (the repo heuristic —
+    the strength bar a trained model must clear, per the ADR-0005 protocol)."""
+    if opponent == "random":
+        return random.choice(list(board.legal_moves))
+    global _HEURISTIC_SEARCH
+    if _HEURISTIC_SEARCH is None:
+        _HEURISTIC_SEARCH = AlphaBetaSearch(ChessGame(), SunfishEvaluation(), depth=4)
+    state = (encode_board(board), 1 if board.turn == chess.WHITE else -1, board.fen(), None, board)
+    policy, _, _ = _HEURISTIC_SEARCH.search(state)
+    legal = list(dict.fromkeys(MoveMapper.to_index(m, board) for m in board.legal_moves))
+    idx = int(np.argmax(policy[legal]))
+    return MoveMapper.from_index(legal[idx], board)
 
 
 @click.group()
@@ -56,19 +76,22 @@ def train(iterations, filters, blocks, batch_size, cloud):
 @cli.command()
 @click.option("--games", type=int, help="Number of evaluation games")
 @click.option("--threshold", type=float, help="Win rate threshold")
+@click.option("--opponent", type=click.Choice(["random", "heuristic"]),
+              default="random", show_default=True,
+              help="Opponent: random (legacy) or the repo heuristic (strength bar)")
 @click.option("--is-local", is_flag=True, help="Skip S3 download and use local model")
-def evaluate(games, threshold, is_local):
-    """Evaluate trained model against random opponent"""
+def evaluate(games, threshold, is_local, opponent):
+    """Evaluate trained model against an opponent (random or the repo heuristic)"""
     if games:
         CONFIG.eval_games = games
     if threshold:
         CONFIG.eval_threshold = threshold
 
-    click.echo("🎲 Starting evaluation...")
-    _evaluate_impl(is_local)
+    click.echo(f"🎲 Starting evaluation (opponent: {opponent})...")
+    _evaluate_impl(is_local, opponent)
 
 
-def _evaluate_impl(is_local=False):
+def _evaluate_impl(is_local=False, opponent: str = "random"):
     """Implementation moved from old evaluate() function"""
 
     s3_manager = S3Manager(bucket=CONFIG.bucket, prefix=CONFIG.prefix)
@@ -125,7 +148,7 @@ def _evaluate_impl(is_local=False):
                 legal_indices = [MoveMapper.to_index(m, board) for m in legal_moves]
                 move = legal_moves[np.argmax(probs[legal_indices])]
             else:
-                move = random.choice(list(board.legal_moves))
+                move = _opponent_move(board, opponent)
             board.push(move)
 
         result = board.result()
