@@ -18,7 +18,7 @@ class S3Manager:
             self.s3.head_bucket(Bucket=self.bucket)
         except ClientError as e:
             if e.response["Error"]["Code"] == "404":
-                region = os.environ.get("AWS_DEFAULT_REGION", "us-west-2")
+                region = os.environ.get("AWS_DEFAULT_REGION", "us-east-2")
                 if region == "us-east-1":
                     self.s3.create_bucket(Bucket=self.bucket)
                 else:
@@ -70,6 +70,35 @@ class S3Manager:
             if "Contents" in page:
                 delete_keys = [{"Key": obj["Key"]} for obj in page["Contents"]]
                 self.s3.delete_objects(Bucket=self.bucket, Delete={"Objects": delete_keys})
+
+    def download_latest_for_prefix(self):
+        """Download the most recent checkpoint under THIS job's prefix, for
+        resume after a container restart / spot preemption. Returns the loaded
+        checkpoint dict, or None if no checkpoint exists yet."""
+        response = self.s3.list_objects_v2(Bucket=self.bucket, Prefix=f"{self.prefix}/models/")
+        contents = response.get("Contents") or []
+        if not contents:
+            print("No checkpoint found; starting from iteration 0.")
+            return None
+
+        def iter_of(obj):
+            name = obj["Key"].rsplit("/", 1)[-1]
+            try:
+                return int(name.replace("model_", "").replace(".pt", ""))
+            except ValueError:
+                return -1
+
+        latest = max(contents, key=iter_of)
+        if iter_of(latest) < 0:
+            return None
+        print(f"Resuming: downloading {latest['Key']}...")
+        local_path = "/tmp/checkpoint.pt"
+        try:
+            self.s3.download_file(self.bucket, latest["Key"], local_path)
+            return torch.load(local_path, map_location="cpu")
+        except Exception as e:
+            print(f"Failed to download checkpoint {latest['Key']}: {e}")
+            return None
 
     def download_checkpoint(self, iteration: int = None):
         s3_key = None

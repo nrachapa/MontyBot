@@ -470,14 +470,14 @@ class VectorizedMCTS(SearchStrategy):
     vectorized = True
 
     def __init__(self, game: Game, network: Network, simulations: int | None = None,
-                 batch: int = 32, pool: int = 50_000) -> None:
+                 batch: int | None = None, pool: int = 50_000) -> None:
         from ..config import CONFIG
 
         self.game = game
         self.network = network
         self.network.eval()
         self.simulations = simulations if simulations is not None else CONFIG.simulations
-        self.batch = batch
+        self.batch = batch if batch is not None else CONFIG.net_eval_batch
         self.c_puct = 1.0  # matches MCTS
         self.dirichlet_alpha = 0.3
         self.dirichlet_eps = 0.25
@@ -603,7 +603,7 @@ class VectorizedMCTS(SearchStrategy):
     # -------------------------------------------------------------- net
 
     def _net_root(self, k: int) -> None:
-        x = torch.from_numpy(self.tensors[k]).unsqueeze(0).to(self.net_device)
+        x = torch.from_numpy(self.tensors[k]).unsqueeze(0).to(next(self.network.parameters()).device)
         with torch.inference_mode():
             logits, _ = self.network(x)
         probs = torch.softmax(logits, dim=1).cpu().numpy()[0]
@@ -628,7 +628,7 @@ class VectorizedMCTS(SearchStrategy):
     def _batch_net(self, batch: list[int]) -> None:
         if not batch:
             return
-        x = torch.from_numpy(np.stack([self.tensors[i] for i in batch])).to(self.net_device)
+        x = torch.from_numpy(np.stack([self.tensors[i] for i in batch])).to(next(self.network.parameters()).device)
         with torch.inference_mode():
             _, value = self.network(x)
         for i, v in zip(batch, value.squeeze(1).cpu().numpy()):

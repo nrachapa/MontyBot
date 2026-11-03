@@ -45,7 +45,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def launch_job(args=None):
+def launch_job(args=None, instance_type: str | None = None):
     config = load_aws_config()
     trn = config["training"]
     aws = config["aws"]
@@ -53,7 +53,7 @@ def launch_job(args=None):
     job_name = trn["job_name"]
     iterations = trn["iterations"]
     bucket = aws["s3"]["bucket"]
-    instance_type = trn["default_instance_type"]
+    instance_type = instance_type or trn["default_instance_type"]
     use_spot_instances = bool(trn.get("spot_instances", True))
 
     try:
@@ -128,9 +128,9 @@ def wait_for_job(job_name: str, poll_seconds: int = 30) -> str:
         time.sleep(poll_seconds)
 
 
-def launch_training():
+def launch_training(instance_type: str | None = None):
     """Launch training without parsing CLI arguments (for use by CLI)"""
-    job_name = launch_job()
+    job_name = launch_job(instance_type=instance_type)
     print(f"Monitor: aws sagemaker describe-training-job --training-job-name {job_name}")
     config = load_aws_config()
     poll_seconds = int(config.get("training", {}).get("poll_seconds", 30))
@@ -158,11 +158,21 @@ class SageMakerTrainer:
 
         checkpoint = {
             "model_state": self.trainer.network.state_dict(),
+            "optimizer_state": self.trainer.training.opt.state_dict(),
             "iteration": iteration,
             "config": CONFIG.model_dump(),
         }
         self.s3_manager.upload_checkpoint(checkpoint, iteration)
         print(f"Saved checkpoint at iteration {iteration}")
+
+    def load_checkpoint(self, checkpoint: dict):
+        """Restore net weights + optimizer state + the resume iteration from a
+        downloaded checkpoint (survives spot preemption / container restarts)."""
+        self.trainer.network.load_state_dict(checkpoint["model_state"])
+        if "optimizer_state" in checkpoint:
+            self.trainer.training.opt.load_state_dict(checkpoint["optimizer_state"])
+        self.start_iteration = int(checkpoint.get("iteration", 0)) + 1
+        print(f"Resumed from iteration {checkpoint.get('iteration')} (continuing at {self.start_iteration})")
 
     def train_gpu(self, iterations: int):
         from src.config import CONFIG
@@ -188,8 +198,7 @@ class SageMakerTrainer:
             avg_loss = sum(losses) / len(losses) if losses else 0.0
             print(f"Iteration {i}: Loss = {avg_loss:.4f}")
 
-            if i % 100 == 0:
-                self.save_checkpoint(i)
+            self.save_checkpoint(i)
 
         self.save_checkpoint(iterations)
 
@@ -199,14 +208,41 @@ def main():
 
     # If running as SageMaker training script
     if args.s3_bucket and args.job_name:
+        from src.config import CONFIG
         from src.infra.s3_manager import S3Manager
 
-        s3_manager = S3Manager(args.s3_bucket, prefix=args.job_name)
-        # Ensure the checkpoint bucket exists prior to any upload attempts
-        s3_manager.ensure_bucket_exists()
-        trainer = SageMakerTrainer(s3_manager)
-        trainer.train_gpu(args.iterations)
-        print("Training completed")
+        # Cloud-optimized config (ADR-0007: self-play on GPU; ADR-0009 net C;
+        # the bigger net-eval batch amortizes on the T4). Set before the
+        # Trainer builds the net/search; restored in `finally` so this global
+        # mutation never leaks past main() (the container exits anyway, but a
+        # test may call main() and then keep running).
+        saved = (
+            CONFIG.gen_device, CONFIG.filters, CONFIG.blocks,
+            CONFIG.simulations, CONFIG.net_eval_batch,
+        )
+        try:
+            CONFIG.gen_device = "cuda"
+            CONFIG.filters = 256
+            CONFIG.blocks = 8
+            CONFIG.simulations = 64
+            CONFIG.net_eval_batch = 64
+
+            s3_manager = S3Manager(args.s3_bucket, prefix=args.job_name)
+            # Ensure the checkpoint bucket exists prior to any upload attempts
+            s3_manager.ensure_bucket_exists()
+            trainer = SageMakerTrainer(s3_manager)
+            # Resume from this job's last checkpoint if the container restarted
+            # (spot preemption); otherwise start from iteration 0.
+            checkpoint = s3_manager.download_latest_for_prefix()
+            if checkpoint:
+                trainer.load_checkpoint(checkpoint)
+            trainer.train_gpu(args.iterations)
+            print("Training completed")
+        finally:
+            (
+                CONFIG.gen_device, CONFIG.filters, CONFIG.blocks,
+                CONFIG.simulations, CONFIG.net_eval_batch,
+            ) = saved
     else:
         # Running as launcher
         job_name = launch_job(args)

@@ -9,6 +9,10 @@ from .core import BaseConfig
 # time should be in this format: 2025-11-23-16-38-58-988 in UTC
 utc_time = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H-%M-%S-%f")[:-3]
 
+# Single AWS-region knob (read once at import, like the credential env vars
+# below); the S3 bucket name derives from it (`montybot-training-{region}`).
+DEFAULT_REGION = os.environ.get("AWS_DEFAULT_REGION", "us-east-2")
+
 
 class MontyBotConfig(BaseConfig):
     """Production configuration"""
@@ -25,6 +29,7 @@ class MontyBotConfig(BaseConfig):
     iterations: int = Field(default=1000, gt=0)
     mixed_precision: bool = True
     simulations: int = Field(default=10, gt=0)
+    net_eval_batch: int = Field(default=32, gt=0)
     c_discount: float = Field(default=0.01, ge=0.0, lt=0.5)  # AlphaZero: value target = (1-2c)v + 2c*result
     games_per_iteration: int = Field(default=128, gt=0)
     train_steps: int = Field(default=2, gt=0)
@@ -40,13 +45,15 @@ class MontyBotConfig(BaseConfig):
     spot_instances: bool = True
 
     # AWS Resources
-    region: str = Field(default="us-west-2", min_length=1)
+    # Region is the single AWS-region knob (from the environment); the S3
+    # bucket name derives from it (`montybot-training-{region}`).
+    region: str = Field(default=DEFAULT_REGION, min_length=1)
     # No hardcoded credentials (ADR-0004 local-first): read from the
-    # environment. None = unset → SageMaker falls back to its default
+    # environment. None = unset -> SageMaker falls back to its default
     # execution role; the cloud path is an explicit `--cloud` opt-in.
     account_id: str | None = Field(default=os.environ.get("AWS_ACCOUNT_ID"))
     role_arn: str | None = Field(default=os.environ.get("AWS_ROLE_ARN"))
-    bucket: str = Field(default="montybot-training", min_length=1)
+    bucket: str = Field(default=f"montybot-training-{DEFAULT_REGION}", min_length=1)
     prefix: str = Field(default=f"montybot-gpu-training-{utc_time}", min_length=1)
 
     # Evaluation
@@ -71,7 +78,7 @@ class MontyBotConfig(BaseConfig):
         return v
 
     def model_post_init(self, __context):
-        """Handle GPU scaling after validation"""
+        """Handle GPU scaling after validation."""
         if self.device == "cuda" and torch.cuda.is_available():
             gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1e9
             if gpu_memory < 8:
