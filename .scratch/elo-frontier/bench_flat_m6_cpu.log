@@ -1,7 +1,0 @@
-WARNING: checkpoint /Users/norain/workspace/MontyBot/model.pt does not match the current net shape — using random weights (loop cost, not policy quality)
-[Ticket 10]  32 sims | flat   4401.0 ms/move (198 net calls/move, 22.23 ms/call, 20659 nodes) | unbatched    153.2 ms/move | ratio 28.72x | cpu
-[Ticket 10] 100 sims | flat  13224.7 ms/move (606 net calls/move, 21.82 ms/call, 66216 nodes) | unbatched    554.9 ms/move | ratio 23.83x | cpu
-  ADR-0007 anchor (M6, ticket 09): unbatched 190 ms/move CPU / 216 ms/move MPS at 32 sims.
-  Flat 'sims' = net calls (one batched call / iteration, batch 32): per-net-call
-  cost is the honest unit — flat per call should be <= unbatched per sim to win.
-  NOTE: decision-grade needs MPS on the M6 — re-run with: python proto_flat_mcts.py mps

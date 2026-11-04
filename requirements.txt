@@ -1,0 +1,13 @@
+# Cloud-only dependencies for the SageMaker PyTorch training container.
+# The container (framework_version 2.2.0 / py310) already provides torch and
+# the CUDA build; do NOT list torch here (reinstalling it would clobber the
+# container's GPU build). The sagemaker-training-toolkit auto-installs this
+# file (it must live at the source root, i.e. next to `source_dir="."`) when
+# the entry point is a .py program. Local dev uses uv + pyproject.toml and
+# ignores this file.
+numpy>=1.24,<2.0
+chess>=1.9
+click>=8.0.0
+pydantic>=2.0.0
+boto3>=1.26.0
+sagemaker>=2.190,<3.0

@@ -12,3 +12,14 @@ model.pt
 checkpoint_*.pt
 *.onnx
 training_metrics.png
+.scratch/
+.pre-commit-config.yaml
+AGENTS.md
+architecture.md
+bench_ticket09.py
+CODING_STANDARDS.md
+GLOSSARY.md
+goal-and-requirements.md
+*.png
+.openidea/
+docs/

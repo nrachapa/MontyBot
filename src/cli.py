@@ -48,8 +48,17 @@ def cli(verbose):
 @click.option("--blocks", type=int, help="Model blocks")
 @click.option("--batch-size", type=int, help="Batch size")
 @click.option("--cloud/--local", default=False, help="Cloud vs local training")
-def train(iterations, filters, blocks, batch_size, cloud):
+@click.option("--instance-type", default=None, help="SageMaker instance type (overrides config default)")
+@click.option("--on-demand", is_flag=True, help="Use on-demand instances (config default is spot)")
+@click.option("--region", default=None, help="AWS region (defaults to $AWS_DEFAULT_REGION or us-east-2)")
+def train(iterations, filters, blocks, batch_size, cloud, instance_type, on_demand, region):
     """Launch model training"""
+    # --region is the single AWS knob: steer the AWS SDK/boto3 (env) and the
+    # S3 bucket name (config) to the same region.
+    if region:
+        os.environ["AWS_DEFAULT_REGION"] = region
+        CONFIG.region = region
+        CONFIG.bucket = f"montybot-training-{region}"
     # Override CONFIG
     if iterations:
         CONFIG.iterations = iterations
@@ -59,12 +68,14 @@ def train(iterations, filters, blocks, batch_size, cloud):
         CONFIG.blocks = blocks
     if batch_size:
         CONFIG.batch_size = batch_size
+    if on_demand:
+        CONFIG.spot_instances = False
 
     if cloud:
         click.echo("🚀 Launching cloud training...")
         from src.infra.sagemaker_manager import launch_training
 
-        launch_training()
+        launch_training(instance_type=instance_type)
     else:
         click.echo("🏠 Starting local training...")
         from src.training.trainer import Trainer
