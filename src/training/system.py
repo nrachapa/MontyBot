@@ -3,7 +3,7 @@ import numpy as np
 from .evaluation import SunfishEvaluation, ZeroEvaluation
 from .game import ChessGame
 from .network import AlphaZeroNet
-from .search import MCTS, VectorizedMCTS, AlphaBetaSearch, ParallelSelfPlay, SunfishSearch
+from .search import MCTS, AlphaBetaSearch, ParallelSelfPlay, SunfishSearch, VectorizedMCTS
 from .training import AlphaZeroTraining
 
 

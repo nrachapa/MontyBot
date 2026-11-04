@@ -10,8 +10,8 @@ import torch
 
 from src.config import CONFIG
 from src.infra.s3_manager import S3Manager
-from src.training.game import ChessGame, MoveMapper, encode_board
 from src.training.evaluation import SunfishEvaluation
+from src.training.game import ChessGame, MoveMapper, encode_board
 from src.training.search import AlphaBetaSearch
 from src.training.system import Factory
 
