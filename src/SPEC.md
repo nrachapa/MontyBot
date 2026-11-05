@@ -21,6 +21,8 @@ program against.
 
 - Imports src-training (Trainer) and src-infra (S3Manager, cloud launch); `config.py` and
   `core.py` stay leaves — they must not import from `training/` or `infra/`.
+- The `Game` ABC in `core.py` stays representation-agnostic (`state: Any`); the concrete
+  `Position` state object lives in src-training (`game.py`) so `core.py` never imports `chess`.
 - CLI overrides mutate the global `CONFIG` in place before delegating.
 
 ## Known limitations (draft)

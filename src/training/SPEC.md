@@ -12,7 +12,8 @@ references: [adr-0001, adr-0006, adr-0007, adr-0008, adr-0009]
 
 The whole AlphaZero loop:
 
-- **`game.py`** — `ChessGame`: 8-plane encoding (6 signed piece planes + castling + en-passant),
+- **`game.py`** — `Position` (the state object: `board` · `color` · `fen` · `tensor`) and
+  `ChessGame`: 8-plane encoding (6 signed piece planes + castling + en-passant),
   the 133-action `MoveMapper` (64 quiet + 64 captures + 5 castles; promotions resolved at
   execution), `python-chess` legality, termination on mate/stalemate/threefold/insufficient
   material/150-halfmove (adr-0006).
@@ -27,6 +28,12 @@ The whole AlphaZero loop:
 
 ## Boundary
 
+- **State representation**: the game state is a single `Position` value object defined in
+  `game.py` — `board` (authoritative: legal moves, FEN, terminal, and winner all derive from
+  it, so the hot path never re-parses FEN), `color` (+1 white / −1 black), `fen` (cache), and
+  `tensor` (the 8-plane encoded input; may be `None` for heuristic-only positions). Every
+  consumer — MCTS, self-play, `Buffer`, `train_step`, evaluation — takes and returns
+  `Position`; the former 2/3/4/5-tuples are gone, there is no parallel representation.
 - Imports `src.config` / `src.core` only. Nothing here imports `src/infra` — the cloud route
   pulls this module in, never the reverse.
 - `MoveMapper.from_index` **raises** on an action with no legal move; a silent fallback is
