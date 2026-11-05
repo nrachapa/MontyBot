@@ -243,21 +243,16 @@ def main():
         from src.config import CONFIG
         from src.infra.s3_manager import S3Manager
 
-        # Cloud-optimized config (ADR-0007: self-play on GPU; ADR-0009 net C;
-        # the bigger net-eval batch amortizes on the T4). Set before the
-        # Trainer builds the net/search; restored in `finally` so this global
-        # mutation never leaks past main() (the container exits anyway, but a
-        # test may call main() and then keep running).
-        saved = (
-            CONFIG.gen_device, CONFIG.filters, CONFIG.blocks,
-            CONFIG.simulations, CONFIG.net_eval_batch,
-        )
+        # Cloud-optimized: run self-play + training on the GPU (gen_device=cuda,
+        # ADR-0007). The net/sims/net-eval-batch keep their config defaults -
+        # the M6-validated 128/4 (~1.2M, ticket 10) at sims=10, net_eval_batch=32.
+        # (ADR-0009's bigger "net C" 256/8 + sims=64 backfired: it made one
+        # iteration too slow to finish on a single T4, so the 2026-11-03 run
+        # saved zero checkpoints in 2h12m.) Restored in `finally` so this global
+        # mutation never leaks past main().
+        saved = CONFIG.gen_device
         try:
             CONFIG.gen_device = "cuda"
-            CONFIG.filters = 256
-            CONFIG.blocks = 8
-            CONFIG.simulations = 64
-            CONFIG.net_eval_batch = 64
 
             s3_manager = S3Manager(args.s3_bucket, prefix=args.job_name)
             # Ensure the checkpoint bucket exists prior to any upload attempts
@@ -275,10 +270,7 @@ def main():
             trainer.train_gpu(args.iterations)
             print("Training completed", flush=True)
         finally:
-            (
-                CONFIG.gen_device, CONFIG.filters, CONFIG.blocks,
-                CONFIG.simulations, CONFIG.net_eval_batch,
-            ) = saved
+            CONFIG.gen_device = saved
     else:
         # Running as launcher
         job_name = launch_job(args)
