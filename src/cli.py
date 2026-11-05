@@ -11,7 +11,7 @@ import torch
 from src.config import CONFIG
 from src.infra.s3_manager import S3Manager
 from src.training.evaluation import SunfishEvaluation
-from src.training.game import ChessGame, MoveMapper, encode_board
+from src.training.game import ChessGame, MoveMapper, Position, encode_board
 from src.training.search import AlphaBetaSearch
 from src.training.system import Factory
 
@@ -27,7 +27,7 @@ def _opponent_move(board: "chess.Board", opponent: str) -> "chess.Move":
     global _HEURISTIC_SEARCH
     if _HEURISTIC_SEARCH is None:
         _HEURISTIC_SEARCH = AlphaBetaSearch(ChessGame(), SunfishEvaluation(), depth=4)
-    state = (encode_board(board), 1 if board.turn == chess.WHITE else -1, board.fen(), None, board)
+    state = Position(board, 1 if board.turn == chess.WHITE else -1, board.fen(), encode_board(board))
     policy, _, _ = _HEURISTIC_SEARCH.search(state)
     legal = list(dict.fromkeys(MoveMapper.to_index(m, board) for m in board.legal_moves))
     idx = int(np.argmax(policy[legal]))

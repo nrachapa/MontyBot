@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 from src.training.evaluation import SunfishEvaluation
-from src.training.game import ChessGame, MoveMapper
+from src.training.game import ChessGame, MoveMapper, Position
 from src.training.search import SunfishSearch
 
 
@@ -11,7 +11,7 @@ class TestSunfishEval:
     def test_initial_board_eval(self):
         """Initial board should be roughly equal."""
         board = chess.Board()
-        state = (None, 1, board.fen())
+        state = Position(board, 1, board.fen(), None)
         evaluator = SunfishEvaluation()
         score = evaluator.evaluate(state)
         # Sunfish PSTs might not be perfectly zero-sum for initial position
@@ -21,7 +21,7 @@ class TestSunfishEval:
         """White material advantage should be positive."""
         # Remove Black Queen
         board = chess.Board("rnb1kbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
-        state = (None, 1, board.fen())
+        state = Position(board, 1, board.fen(), None)
         evaluator = SunfishEvaluation()
         score = evaluator.evaluate(state)
         # Queen value is 929
@@ -32,11 +32,11 @@ class TestSunfishEval:
         # Add pawns to avoid insufficient material draw
         # White Knight on e4 (center)
         b1 = chess.Board("7k/8/8/8/4N3/8/8/K1P5 w - - 0 1")
-        s1 = SunfishEvaluation().evaluate((None, 1, b1.fen()))
+        s1 = SunfishEvaluation().evaluate(Position(b1, 1, b1.fen(), None))
 
         # White Knight on h1 (corner)
         b2 = chess.Board("7k/8/8/8/8/8/8/K1P4N w - - 0 1")
-        s2 = SunfishEvaluation().evaluate((None, 1, b2.fen()))
+        s2 = SunfishEvaluation().evaluate(Position(b2, 1, b2.fen(), None))
 
         assert s1 > s2
 
@@ -46,9 +46,8 @@ class TestChessGameIntegration:
         """Test that ChessGame maintains state via FEN."""
         game = ChessGame()
         state = game.get_initial_state()
-        # state is (planes, color, fen)
-        assert len(state) == 4
-        initial_fen = state[2]
+        assert isinstance(state, Position)
+        initial_fen = state.fen
 
         # Apply move e2e4
         board = chess.Board(initial_fen)  # Create board to test FEN parsing
@@ -56,7 +55,7 @@ class TestChessGameIntegration:
         idx = MoveMapper.to_index(move, board)
 
         next_state = game.apply_move(state, idx)
-        next_fen = next_state[2]
+        next_fen = next_state.fen
 
         assert initial_fen != next_fen
         # FEN string: rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1
@@ -67,14 +66,14 @@ class TestChessGameIntegration:
         game = ChessGame()
         state = game.get_initial_state()
         # White to move (1)
-        assert state[1] == 1
+        assert state.color == 1
 
         # Apply move
         moves = game.get_legal_moves(state)
         next_state = game.apply_move(state, moves[0])
 
         # Black to move (-1)
-        assert next_state[1] == -1
+        assert next_state.color == -1
 
 
 class TestMCTSSunfish:
@@ -99,7 +98,7 @@ class TestMCTSSunfish:
         # White to move. Black Queen on d5 hanging.
         # White Rook on d1.
         board = chess.Board("7k/8/8/3q4/8/8/8/3R3K w - - 0 1")
-        state = (None, 1, board.fen())
+        state = Position(board, 1, board.fen(), None)
 
         policy, _, _ = search.search(state)
         move = chess.Move.from_uci("d1d5")

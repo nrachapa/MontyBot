@@ -10,7 +10,7 @@ import torch
 from ..config import CONFIG
 from ..core import Game, Network, SearchStrategy, SelfPlayStrategy
 from .batch_manager import BatchManager
-from .game import MoveMapper, encode_board
+from .game import MoveMapper, Position, encode_board
 
 WORKER_CLIENT = None
 
@@ -77,7 +77,7 @@ class MCTS(SearchStrategy):
             # from the current player's net (masked over existing children) and
             # let the noise draw below add a fresh Dirichlet perturbation. Do
             # NOT re-expand: that would destroy the inherited statistics.
-            tensor = torch.from_numpy(root.state[0]).float().unsqueeze(0).to(CONFIG.device)
+            tensor = torch.from_numpy(root.state.tensor).float().unsqueeze(0).to(CONFIG.device)
             with torch.no_grad():
                 probs = torch.softmax(self.network(tensor)[0], dim=1).cpu().numpy()[0]
             total = float(sum(probs[a] for a in root.children)) or 1.0
@@ -115,7 +115,7 @@ class MCTS(SearchStrategy):
             value = self._expand(node)
 
             # Backpropagation
-            self._backpropagate(search_path, value, state[1])  # state[1] is root player color
+            self._backpropagate(search_path, value, state.color)  # root player color
 
         # Return visit counts as policy
         policy = np.zeros(CONFIG.action_size, dtype=np.float32)
@@ -148,11 +148,11 @@ class MCTS(SearchStrategy):
         if self.game.is_terminal(node.state):
             # Value is from the leaf's side-to-move perspective (matches the
             # training target winner*color and _backpropagate's sign logic).
-            return self.game.get_winner(node.state) * node.state[1]
+            return self.game.get_winner(node.state) * node.state.color
 
         # Evaluate with network
         # Network expects batch (N, C, H, W)
-        tensor = torch.from_numpy(node.state[0]).unsqueeze(0).to(torch.device(CONFIG.gen_device))
+        tensor = torch.from_numpy(node.state.tensor).unsqueeze(0).to(torch.device(CONFIG.gen_device))
         with torch.no_grad():
             logits, value = self.network(tensor)
             probs = torch.softmax(logits, dim=1).cpu().numpy()[0]
@@ -198,9 +198,9 @@ class MCTS(SearchStrategy):
             # If node is White's turn, add v.
             # If node is Black's turn, subtract v.
 
-            node_color = node.state[1]
+            node_color = node.state.color
             # We need to know the color of the LEAF node to interpret 'value'
-            leaf_color = search_path[-1].state[1]
+            leaf_color = search_path[-1].state.color
 
             if node_color == leaf_color:
                 node.value_sum += value
@@ -221,8 +221,7 @@ class SunfishSearch(SearchStrategy):
 
     def search(self, state, root=None) -> tuple[np.ndarray, Any]:
         # state is (planes, color, fen)
-        fen = state[2]
-        board = chess.Board(fen)
+        board = chess.Board(state.fen)
         legal_moves = list(board.legal_moves)
 
         p = np.zeros(self.action_size, dtype=np.float32)
@@ -252,7 +251,7 @@ class SunfishSearch(SearchStrategy):
             # No, interface says 'state: Any'.
             # So we must pass the state tuple.
 
-            next_state = (None, 1 if board.turn == chess.WHITE else -1, board.fen())
+            next_state = Position(board, 1 if board.turn == chess.WHITE else -1, board.fen(), None)
             raw_score = self.evaluator.evaluate(next_state)
 
             # Convert to side-to-move perspective
@@ -292,7 +291,7 @@ class AlphaBetaSearch(SearchStrategy):
     def search(self, state, root=None) -> tuple[np.ndarray, Any]:
         # state is (planes, color, fen, history, board)
         # We need the board object for move generation
-        board = state[4] if len(state) > 4 else chess.Board(state[2])
+        board = state.board
 
         legal_moves = list(board.legal_moves)
         p = np.zeros(self.action_size, dtype=np.float32)
@@ -337,7 +336,7 @@ class AlphaBetaSearch(SearchStrategy):
             # We need score from perspective of 'board.turn'.
 
             # Construct state for evaluator
-            state = (None, 1 if board.turn == chess.WHITE else -1, board.fen())
+            state = Position(board, 1 if board.turn == chess.WHITE else -1, board.fen(), None)
             raw_score = self.evaluator.evaluate(state)
 
             # If board.turn is WHITE, raw_score is correct.
@@ -423,7 +422,7 @@ class ParallelSelfPlay(SelfPlayStrategy):
         # the discounted search value bootstraps the value head toward a
         # positional read, anchored to the actual game outcome.
         c = CONFIG.c_discount
-        return [(s, p, (1 - 2 * c) * v + 2 * c * winner * s[1]) for (s, p, v) in traj]
+        return [(s, p, (1 - 2 * c) * v + 2 * c * winner * s.color) for (s, p, v) in traj]
 
 
 class FlatNode:
@@ -569,7 +568,7 @@ class VectorizedMCTS(SearchStrategy):
         self.visits[k] = 0  # pool slots are reused after _reset — never trust inherited stats
         self.first_child[k] = -1
         self.n_children[k] = 0
-        st = (tensor, color, fen, board)
+        st = Position(board, color, fen, tensor)
         # Deferred draw (the proto's finding): claim_draw walks the whole
         # history per node; the 150-halfmove cap gives the same winner=0.
         if board.is_game_over(claim_draw=False) or board.halfmove_clock >= self.game.HALFMOVE_CAP:
@@ -597,7 +596,7 @@ class VectorizedMCTS(SearchStrategy):
         k = self.size
         self.size = k + 1
         self.parents[k] = -1
-        self._setup(k, color, state[2], self.game._board(state), state[0])
+        self._setup(k, color, state.fen, state.board, state.tensor)
         return k
 
     # -------------------------------------------------------------- net
@@ -688,13 +687,13 @@ class VectorizedMCTS(SearchStrategy):
 
     def search(self, state: Any, root: FlatNode | None = None) -> tuple[np.ndarray, Any, float]:
         root_idx = root.idx if isinstance(root, FlatNode) else None
-        if root_idx is None or self.fens[root_idx] != state[2]:
+        if root_idx is None or self.fens[root_idx] != state.fen:
             self._reset()
-            root_idx = self._new_root(state, state[1])
+            root_idx = self._new_root(state, state.color)
             root = FlatNode(root_idx, self)
         if self.terminal[root_idx]:
             return (np.zeros(MoveMapper.ACTION_SIZE, dtype=np.float32), root,
-                    float(self.winner[root_idx]) * int(state[1]))
+                    float(self.winner[root_idx]) * int(state.color))
         self._net_root(root_idx)
         self._apply_dirichlet(root_idx)
         if self.n_children[root_idx] == 0:

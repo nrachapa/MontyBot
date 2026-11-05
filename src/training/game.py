@@ -82,43 +82,57 @@ class MoveMapper:
         raise ValueError(f"action {idx} has no legal move on this board")
 
 
+class Position:
+    """The state value object behind the ``Game`` seam — one representation
+    for the four things every consumer reads: the python-chess ``board``
+    (authoritative: legal moves, FEN, terminal and winner all derive from it,
+    so the hot path skips FEN re-parsing), ``color`` (+1 white / -1 black, the
+    net's input convention, flipped per ply), ``fen`` (kept for logging/debug),
+    and ``tensor`` (the encoded 8-plane board, cached). Replaces the old
+    positional tuples — two divergent shapes, ``(tensor, color, fen, board)``
+    and ``(tensor, color, fen, None, board)`` — that callers told apart with
+    ``len()`` guards and index reads. ``tensor`` may be None for heuristic-only
+    positions that never feed the network."""
+
+    __slots__ = ("board", "color", "fen", "tensor")
+
+    def __init__(self, board: chess.Board, color: int, fen: str,
+                 tensor: np.ndarray | None) -> None:
+        self.board = board
+        self.color = color
+        self.fen = fen
+        self.tensor = tensor
+
+
 class ChessGame(Game):
-    """Real 8x8 chess. State: (planes, color, fen, board) with color
-    +1 white / -1 black; the board object lets the hot path skip FEN
-    re-parsing. Termination (ADR-0006): mate, stalemate, threefold,
-    insufficient material, 50/75-move rule, 150-halfmove hard cap."""
+    """Real 8x8 chess. State is a ``Position``; the carried board object lets
+    the hot path skip FEN re-parsing. Termination (ADR-0006): mate, stalemate,
+    threefold, insufficient material, 50/75-move rule, 150-halfmove hard cap."""
 
     HALFMOVE_CAP = 150
 
-    def get_initial_state(self):
+    def get_initial_state(self) -> Position:
         b = chess.Board()
-        return (encode_board(b), 1, b.fen(), b)
+        return Position(board=b, color=1, fen=b.fen(), tensor=encode_board(b))
 
-    def _board(self, state) -> chess.Board:
-        if len(state) > 3 and isinstance(state[3], chess.Board):
-            return state[3]
-        return chess.Board(state[2])
+    def get_legal_moves(self, state: Position) -> list[int]:
+        return list(dict.fromkeys(MoveMapper.to_index(m, state.board)
+                                  for m in state.board.legal_moves))
 
-    def get_legal_moves(self, state) -> list[int]:
-        b = self._board(state)
-        return list(dict.fromkeys(MoveMapper.to_index(m, b) for m in b.legal_moves))
-
-    def apply_move(self, state, move_idx: int):
-        b = self._board(state)
+    def apply_move(self, state: Position, move_idx: int) -> Position:
         if self.is_terminal(state):
             return state
-        m = MoveMapper.from_index(move_idx, b)
-        b2 = b.copy()  # never mutate the stored state (parents/trajectory keep it)
-        b2.push(m)
-        return (encode_board(b2), -state[1], b2.fen(), b2)
+        m = MoveMapper.from_index(move_idx, state.board)
+        b = state.board.copy()  # never mutate the stored state (parents/trajectory keep it)
+        b.push(m)
+        return Position(board=b, color=-state.color, fen=b.fen(), tensor=encode_board(b))
 
-    def is_terminal(self, state) -> bool:
-        b = self._board(state)
-        return b.is_game_over(claim_draw=True) or b.halfmove_clock >= self.HALFMOVE_CAP
+    def is_terminal(self, state: Position) -> bool:
+        return state.board.is_game_over(claim_draw=True) or state.board.halfmove_clock >= self.HALFMOVE_CAP
 
-    def get_winner(self, state) -> int:
+    def get_winner(self, state: Position) -> int:
         """+1 white, -1 black, 0 draw (from white's perspective)."""
-        b = self._board(state)
+        b = state.board
         if b.halfmove_clock >= self.HALFMOVE_CAP:
             return 0
         res = b.result(claim_draw=True)

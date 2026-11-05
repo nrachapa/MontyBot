@@ -408,9 +408,7 @@ pst = {
 
 class SunfishEvaluation(EvaluationStrategy):
     def evaluate(self, state) -> float:
-        # state is (planes, color, fen)
-        fen = state[2]
-        board = chess.Board(fen)
+        board = state.board  # the Position's authoritative board (no FEN re-parse)
 
         if board.is_checkmate():
             return -99999 if board.turn == chess.WHITE else 99999

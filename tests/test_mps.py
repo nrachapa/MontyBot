@@ -2,12 +2,14 @@
 unavailable (e.g. the CI runner); the config-resolution seam is tested
 device-agnostically in test_config.py instead."""
 
+import chess
 import numpy as np
 import pytest
 import torch
 
 from src.config import CONFIG
 from src.training.batch_manager import BatchManager
+from src.training.game import Position
 from src.training.network import AlphaZeroNet
 from src.training.training import AlphaZeroTraining
 
@@ -18,14 +20,16 @@ pytestmark = pytest.mark.skipif(
 
 def _batch(n: int = 4) -> list:
     """Synthetic trajectory entries following the game state convention:
-    (planes, color, fen, ...) — train_step reads s[0]."""
+    a Position (board, color, fen, tensor) — train_step reads s.tensor."""
     rng = np.random.default_rng(0)
+    board = chess.Board()
+    fen = board.fen()
     batch = []
     for _ in range(n):
         planes = rng.random((CONFIG.input_planes, 8, 8), dtype=np.float32)
         p = rng.random(CONFIG.action_size).astype(np.float32)
         p /= p.sum()
-        state = (planes, 1, "startpos-fen", None, None)
+        state = Position(board, 1, fen, planes)
         batch.append((state, p, float(rng.random())))
     return batch
 

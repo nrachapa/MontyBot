@@ -27,7 +27,7 @@ class AlphaZeroTraining(TrainingStrategy):
 
     def train_step(self, batch: list[Any]) -> float:
         states, policies, values = zip(*batch)
-        x = torch.from_numpy(np.stack([s[0] for s in states]).astype(np.float32)).to(self.device)
+        x = torch.from_numpy(np.stack([s.tensor for s in states]).astype(np.float32)).to(self.device)
         y_p = torch.from_numpy(np.stack(policies).astype(np.float32)).to(self.device)
         y_v = torch.tensor(values, dtype=torch.float32, device=self.device)
 

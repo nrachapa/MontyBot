@@ -6,7 +6,7 @@ import pytest
 import torch
 
 from src.core import Game, Network, SearchStrategy, SelfPlayStrategy, TrainingStrategy
-from src.training.game import ChessGame, MoveMapper, encode_board
+from src.training.game import ChessGame, MoveMapper, Position, encode_board
 from src.training.network import AlphaZeroNet
 from src.training.search import MCTS, Node, ParallelSelfPlay, VectorizedMCTS
 from src.training.system import Buffer, Factory
@@ -149,7 +149,7 @@ class TestImplementations:
         traj = trajs[0]
         assert len(traj) >= 2
         (s0, _, v0), (s1, _, v1) = traj[0], traj[1]
-        assert s0[1] == 1 and s1[1] == -1  # alternating colors
+        assert s0.color == 1 and s1.color == -1  # alternating colors
         assert np.isclose(v0 + v1, 1 - 2 * c)
         assert abs(v0 - v1) < 1e-6 or np.isclose(abs(v0 - v1), 4 * c)
 
@@ -187,7 +187,12 @@ class TestImplementations:
         s = np.zeros((CONFIG.input_planes, 8, 8), dtype=np.float32)
         p = np.zeros(CONFIG.action_size, dtype=np.float32)
         p[0] = 1.0
-        batch = [((s, 1), p, 0.0), ((s, -1), p, 0.0)]
+        board = chess.Board()
+        fen = board.fen()
+        batch = [
+            (Position(board, 1, fen, s), p, 0.0),
+            (Position(board, -1, fen, s), p, 0.0),
+        ]
         loss = trainer.train_step(batch)
         assert isinstance(loss, float) and loss >= 0.0
 
@@ -199,8 +204,8 @@ class TestImplementations:
         board = chess.Board("rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3")
         assert board.is_checkmate()
 
-        # State: (planes, color, fen, history)
-        state = (encode_board(board), 1, board.fen(), [board.fen()])
+        # State: a Position (board is authoritative)
+        state = Position(board, 1, board.fen(), encode_board(board))
 
         network = Mock()
         mcts = MCTS(game, network)
@@ -602,7 +607,7 @@ class TestVectorizedMCTS:
         board = chess.Board("rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3")
         assert board.is_checkmate()
         game = ChessGame()
-        state = (encode_board(board), 1, board.fen(), board)
+        state = Position(board, 1, board.fen(), encode_board(board))
         search = VectorizedMCTS(game, vnet, simulations=10)
         policy, _, value = search.search(state)
         assert policy.sum() == 0
@@ -621,7 +626,7 @@ class TestVectorizedMCTS:
         traj = trajs[0]
         assert len(traj) >= 2
         (s0, p0, v0), (s1, p1, v1) = traj[0], traj[1]
-        assert s0[1] == 1 and s1[1] == -1
+        assert s0.color == 1 and s1.color == -1
         assert -1.0 <= v0 <= 1.0 and -1.0 <= v1 <= 1.0
         legal = set(game.get_legal_moves(s0))
         assert p0[[i for i in range(CONFIG.action_size) if i not in legal]].sum() == 0.0
