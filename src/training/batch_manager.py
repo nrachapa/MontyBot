@@ -1,3 +1,12 @@
+"""Inference-request batching for self-play workers — LEGACY.
+
+``BatchManager`` runs a background thread that coalesces the unbatched MCTS's
+one-net-call-per-leaf into batches; ``BatchClient`` is the network stand-in a
+worker swaps in. ADR-0007 measured this naive per-leaf batching ~10x worse than
+the vectorized search (which batches internally — one call per iteration), so
+this module is now only exercised when the unbatched ``MCTS`` is selected or by
+its own tests — retained as the reference/ablation path, not deleted.
+"""
 import multiprocessing as mp
 import queue
 import threading

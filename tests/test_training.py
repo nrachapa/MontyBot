@@ -106,7 +106,7 @@ class TestImplementations:
         finally:
             CONFIG.simulations = saved
 
-    @patch("src.training.search.Pool")
+    @patch("src.training.search.selfplay.Pool")
     def test_parallel_selfplay_mocked(self, mock_pool):
         from src.config import CONFIG
 
@@ -213,7 +213,7 @@ class TestImplementations:
 
         assert policy.sum() == 0
 
-    @patch("src.training.search.Pool")
+    @patch("src.training.search.selfplay.Pool")
     def test_parallel_selfplay_pool_branch(self, mock_pool):
         """Cover the multiprocessing pool branch by ensuring PYTEST_RUNNING is not set and Pool is used."""
         from src.config import CONFIG
@@ -416,7 +416,7 @@ class TestSystem:
 
 
 class TestTrainer:
-    @patch("src.training.search.Pool")
+    @patch("src.training.search.selfplay.Pool")
     def test_train_iteration_fast(self, mock_pool):
         from src.config import CONFIG
 
@@ -443,7 +443,7 @@ class TestTrainer:
             CONFIG.games_per_iteration = original_games
             CONFIG.train_steps = original_steps
 
-    @patch("src.training.search.Pool")
+    @patch("src.training.search.selfplay.Pool")
     def test_trainer_full_workflow(self, mock_pool):
         from src.config import CONFIG
 
@@ -476,7 +476,7 @@ class TestTrainer:
             CONFIG.blocks = original_blocks
             CONFIG.mixed_precision = original_mixed
 
-    @patch("src.training.search.Pool")
+    @patch("src.training.search.selfplay.Pool")
     def test_trainer_empty_buffer_path(self, mock_pool):
         """Covers the branch where buffer.sample returns empty and loop breaks."""
         from src.config import CONFIG
