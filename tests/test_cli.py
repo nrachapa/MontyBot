@@ -235,12 +235,11 @@ class TestCLIIntegration:
         mock_s3_instance = Mock()
         mock_s3_manager.return_value = mock_s3_instance
 
-        # We need to mock the game loop to avoid infinite loop or errors
-        with patch("src.cli.chess.Board") as mock_board_class:
-            mock_board = Mock()
-            mock_board.is_game_over.return_value = True
-            mock_board.result.return_value = "1-0"
-            mock_board_class.return_value = mock_board
+        # Mock play_game so the CLI doesn't run a real game loop.
+        # The CLI calls play_game(game, policy, max_moves=200);
+        # patching at the import ensures the mock is used.
+        with patch("src.cli.play_game") as mock_play:
+            mock_play.return_value = ([Mock()], 0)  # (traj, winner)
 
             result = runner.invoke(cli, ["evaluate", "--is-local"])
 
@@ -252,65 +251,42 @@ class TestCLIIntegration:
 class TestEvaluateImpl:
     """Direct tests of _evaluate_impl function"""
 
-    @patch("torch.cuda.is_available", return_value=True)
-    @patch("torch.device")
-    @patch("random.choice")
-    @patch("numpy.argmax", return_value=0)
-    @patch("torch.softmax")
-    @patch("torch.no_grad")
-    @patch("torch.from_numpy")
-    @patch("src.cli.chess.Board")
-    @patch("src.cli.Factory.create_network")
-    @patch("src.cli.S3Manager")
     @patch("os.path.exists", return_value=False)
+    @patch("src.cli.S3Manager")
+    @patch("src.cli.Factory.create_network")
+    @patch("src.cli.play_game")
     def test_evaluate_impl_with_model(
         self,
-        mock_exists,
-        mock_s3_manager,
+        mock_play,
         mock_factory,
-        mock_board_class,
-        mock_from_numpy,
-        mock_no_grad,
-        mock_softmax,
-        mock_argmax,
-        mock_choice,
-        mock_device,
-        mock_cuda,
+        mock_s3_manager,
+        mock_exists,
     ):
-        """Test _evaluate_impl function directly"""
+        """Test _evaluate_impl function directly.
+
+        Note: mock decorators are applied bottom-to-top, so the first
+        argument gets the TOP decorator's mock.
+        """
         from src.cli import _evaluate_impl
 
-        # Mock S3Manager with checkpoint
-        mock_s3_instance = Mock()
-        mock_s3_instance.download_checkpoint.return_value = {"model_state": {}}
-        mock_s3_manager.return_value = mock_s3_instance
+        # mock_play = top decorator = "src.cli.play_game"
+        # mock_exists = bottom decorator = "os.path.exists"
+        mock_play.return_value = ([], 0)  # play_game returns (traj, winner)
+        mock_exists.return_value = False  # os.path.exists returns False
 
-        # Mock network
+        # mock_factory = 2nd decorator = "src.cli.Factory.create_network"
         mock_network = Mock()
         mock_network.eval.return_value = mock_network
         mock_network.load_state_dict = Mock()
         mock_network.return_value = (Mock(), Mock())
         mock_factory.return_value = mock_network
 
-        # Mock device
-        mock_device.return_value = Mock()
+        # mock_s3_manager = 3rd decorator = "src.cli.S3Manager"
+        mock_s3_instance = Mock()
+        mock_s3_instance.download_checkpoint.return_value = {"model_state": {}}
+        mock_s3_manager.return_value = mock_s3_instance
 
-        # Mock board - game ends immediately
-        mock_board = Mock()
-        mock_board.is_game_over.return_value = True
-        mock_board.result.return_value = "1-0"  # White wins
-        mock_board_class.return_value = mock_board
-
-        # Mock torch operations
-        mock_tensor = Mock()
-        mock_tensor.unsqueeze.return_value.to.return_value = Mock()
-        mock_from_numpy.return_value = mock_tensor
-
-        mock_probs = Mock()
-        mock_probs.cpu.return_value.numpy.return_value = [[0.5, 0.3, 0.2]]
-        mock_softmax.return_value = mock_probs
-
-        # Set eval_games to 1 for quick test
+        # Set config
         original_games = CONFIG.eval_games
         original_device = CONFIG.device
         CONFIG.eval_games = 1
@@ -321,102 +297,66 @@ class TestEvaluateImpl:
             # Should complete without error
             mock_s3_manager.assert_called_once()
             mock_factory.assert_called_once_with("alphazero")
+            # play_game was called once (for 1 game)
+            mock_play.assert_called_once()
         finally:
             CONFIG.eval_games = original_games
             CONFIG.device = original_device
 
-    @patch("torch.cuda.is_available", return_value=True)
-    @patch("torch.device")
-    @patch("random.choice")
-    @patch("numpy.argmax", return_value=0)
-    @patch("torch.softmax")
-    @patch("torch.no_grad")
-    @patch("torch.from_numpy")
-    @patch("src.cli.chess.Board")
-    @patch("src.cli.Factory.create_network")
-    @patch("src.cli.S3Manager")
     @patch("os.path.exists", return_value=False)
+    @patch("src.cli.S3Manager")
+    @patch("src.cli.Factory.create_network")
+    @patch("torch.device")
+    @patch("torch.cuda.is_available", return_value=True)
+    @patch("src.cli.play_game")
     def test_evaluate_impl_game_loop(
         self,
-        mock_exists,
-        mock_s3_manager,
-        mock_factory,
-        mock_board_class,
-        mock_from_numpy,
-        mock_no_grad,
-        mock_softmax,
-        mock_argmax,
-        mock_choice,
-        mock_device,
+        mock_play,
         mock_cuda,
+        mock_device,
+        mock_factory,
+        mock_s3_manager,
+        mock_exists,
     ):
-        """Test _evaluate_impl game loop with moves"""
+        """Test _evaluate_impl calls play_game with the right parameters.
+
+        Note: mock_decorator order is reversed — first arg = top decorator.
+        """
         from src.cli import _evaluate_impl
 
-        # Mock S3Manager
+        # mock_play = top = "src.cli.play_game"
+        # mock_exists = bottom = "os.path.exists"
+        mock_play.return_value = ([], 0)  # (traj, winner)
+        mock_exists.return_value = False
+
+        # mock_s3_manager = "src.cli.S3Manager"
         mock_s3_instance = Mock()
         mock_s3_instance.download_checkpoint.return_value = {"model_state": {}}
         mock_s3_manager.return_value = mock_s3_instance
 
-        # Mock network
+        # mock_factory = "src.cli.Factory.create_network"
         mock_network = MagicMock()
         mock_network.eval.return_value = mock_network
         mock_factory.return_value = mock_network
-        # Ensure the network call returns a tuple of (logits, values)
         mock_network.return_value = (MagicMock(), MagicMock())
 
-        # Mock device
+        # mock_device / mock_cuda = torch mocks
         mock_device.return_value = Mock()
 
-        # Mock board behavior
-        # We want to simulate a few moves
-        import chess
-
-        mock_board = MagicMock()
-        # is_game_over returns False twice then True. Add extra True just in case.
-        mock_board.is_game_over.side_effect = [False, False] + [True] * 100
-        mock_board.move_stack = []  # empty
-        mock_board.turn = True  # White
-        # Use real chess moves
-        mock_board.legal_moves = [chess.Move.from_uci("e2e4"), chess.Move.from_uci("d2d4")]
-        mock_board.result.return_value = "1-0"
-        mock_board.ep_square = None
-        mock_board.castling_rights = ""
-        mock_board.piece_at.return_value = None
-        mock_board.is_castling.return_value = False
-        mock_board.is_capture.return_value = False
-        mock_board.has_kingside_castling_rights.return_value = False
-        mock_board.has_kingside_castling_rights.return_value = False
-        mock_board.has_queenside_castling_rights.return_value = False
-        mock_board.is_repetition.return_value = False
-        mock_board.pieces.return_value = set()
-        mock_board.halfmove_clock = 0
-        mock_board.turn = chess.WHITE
-        mock_board_class.return_value = mock_board
-
-        # Mock torch
-        mock_tensor = Mock()
-        mock_tensor.unsqueeze.return_value.to.return_value = Mock()
-        mock_from_numpy.return_value = mock_tensor
-
-        mock_probs = Mock()
-        # Create a full-sized probability array
-        full_probs = np.zeros((1, CONFIG.action_size), dtype=np.float32)
-        # Set some probabilities for legal moves (indices ~700-800 for e2e4/d2d4)
-        # We don't need exact indices, just need array to be large enough
-        # But we do access it with legal_indices.
-        # Let's just make it large enough.
-        mock_probs.cpu.return_value.numpy.return_value = full_probs
-        mock_softmax.return_value = mock_probs
-
-        # Set config
+        # Set config: 3 games so play_game is called 3 times
         original_games = CONFIG.eval_games
-        CONFIG.eval_games = 1
+        CONFIG.eval_games = 3
 
         try:
             _evaluate_impl()
-            # Verify game loop interactions
-            assert mock_board.push.call_count == 2
+            # play_game should be called once per game
+            assert mock_play.call_count == 3
+            # Verify each call has the right parameters
+            for call in mock_play.call_args_list:
+                args, kwargs = call
+                # args: (game, policy_fn); kwarg: max_moves=200
+                assert len(args) >= 2
+                assert kwargs.get("max_moves") == 200
         finally:
             CONFIG.eval_games = original_games
 
@@ -428,21 +368,28 @@ class TestOpponentSelection:
 
     def test_heuristic_opponent_is_legal(self):
         import src.cli as cli_mod
+        from src.training.game import Position, encode_board
 
         board = chess.Board()
-        move = cli_mod._opponent_move(board, "heuristic")
-        assert move in board.legal_moves
+        state = Position(board, -1, board.fen(), encode_board(board))
+        move = cli_mod._opponent_policy(state, "heuristic")
+        # Return value should be a valid action index
+        assert 0 <= move < 133
 
     def test_random_opponent_is_legal(self):
         import src.cli as cli_mod
+        from src.training.game import Position, encode_board
 
         board = chess.Board()
         for _ in range(10):
-            moves = list(board.legal_moves)
-            assert cli_mod._opponent_move(board, "random") in moves
+            state = Position(board, 1, board.fen(), encode_board(board))
+            move = cli_mod._opponent_policy(state, "random")
+            # Should be a valid action index
+            assert 0 <= move < 133
 
     def test_heuristic_takes_hanging_rook(self):
         import src.cli as cli_mod
+        from src.training.game import Position, encode_board
 
         # A white rook is dropped on c6 (the c7 pawn's square, vacated first);
         # c6 is undefended, so a capture is a net material gain. The old g2
@@ -454,7 +401,11 @@ class TestOpponentSelection:
         board.remove_piece_at(chess.C6)
         board.set_piece_at(chess.C6, chess.Piece(chess.ROOK, chess.WHITE))
         board.push(chess.Move.from_uci("a1a2"))  # black to move
-        move = cli_mod._opponent_move(board, "heuristic")
-        # A capture of the rook on c6, not a quiet developing move.
-        assert move.to_square == chess.C6
-        assert board.is_capture(move)
+        state = Position(board, -1, board.fen(), encode_board(board))
+        move = cli_mod._opponent_policy(state, "heuristic")
+        # The returned move index should correspond to capturing the rook on c6
+        move = cli_mod._opponent_policy(state, "heuristic")
+        # The heuristic captures the rook on c6.
+        resolved = cli_mod.MoveMapper.from_index(move, board)
+        assert resolved.to_square == chess.C6
+        assert board.is_capture(resolved)

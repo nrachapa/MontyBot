@@ -104,6 +104,16 @@ class Position:
         self.tensor = tensor
 
 
+class GameTerminated(Exception):
+    """Raised by a policy_fn to signal the game should end early.
+
+    Used when the search returns a zero policy (no legal moves found),
+    which can happen even if the board hasn't reached a formal terminal
+    state (e.g. stalemate discovered by search but not yet by the game).
+    """
+    pass
+
+
 def play_game(
     game: "Game",
     policy_fn,
@@ -126,10 +136,13 @@ def play_game(
     move_count = 0
 
     while not game.is_terminal(state) and move_count < max_moves:
-        if opponent_fn is not None and move_count % 2 == 1:
-            move = opponent_fn(state)
-        else:
-            move = policy_fn(state)
+        try:
+            if opponent_fn is not None and move_count % 2 == 1:
+                move = opponent_fn(state)
+            else:
+                move = policy_fn(state)
+        except GameTerminated:
+            break
         trajectory.append(state)
         state = game.apply_move(state, move)
         move_count += 1

@@ -67,22 +67,31 @@ class ParallelSelfPlay(SelfPlayStrategy):
             self.search.network = WORKER_CLIENT
 
         rng = np.random.default_rng(seed)
-        state = self.game.get_initial_state()
-        traj = []
+
+        # Wrap MCTS search to return a move index. The closure tracks
+        # subtree reuse (root → child) and collects (state, policy, v)
+        # tuples for the caller.
         root = None
-        while not self.game.is_terminal(state):
-            # Subtree reuse (ticket 10 scope): after move m, the next player's
-            # search root is the child node m led to (warm statistics); its
-            # state IS the current position, search() refreshes its policy.
+        traj = []
+
+        def mcts_policy(state):
+            nonlocal root
+            from ..game import GameTerminated
+
             policy, new_root, v = self.search.search(state, root)
             if policy.sum() == 0:
-                break
+                raise GameTerminated
             move = int(rng.choice(len(policy), p=policy / policy.sum()))
-            traj.append((state, policy, v))
             root = new_root.children.get(move) if new_root is not None else None
-            state = self.game.apply_move(state, move)
+            traj.append((state, policy, v))
+            return move
 
-        winner = self.game.get_winner(state)
+        # Extracted game loop — termination + state transitions owned
+        # by play_game; policy_fn supplies moves.
+        from ..game import play_game
+
+        _, winner = play_game(self.game, mcts_policy, max_moves=200)
+
         # Value target = (1-2c)v + 2c*winner*color (AlphaZero convention):
         # the discounted search value bootstraps the value head toward a
         # positional read, anchored to the actual game outcome.

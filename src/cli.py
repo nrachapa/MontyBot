@@ -11,27 +11,38 @@ import torch
 from src.config import CONFIG
 from src.infra.s3_manager import S3Manager
 from src.training.evaluation import SunfishEvaluation
-from src.training.game import ChessGame, MoveMapper, Position, encode_board
+from src.training.game import ChessGame, MoveMapper, Position, encode_board, play_game
 from src.training.search import AlphaBetaSearch
 from src.training.system import Factory
 
 _HEURISTIC_SEARCH = None  # lazy: the system import pulls the full training graph
 
 
-def _opponent_move(board: "chess.Board", opponent: str) -> "chess.Move":
-    """Pick the opponent's move. 'random' is the legacy baseline; 'heuristic'
-    is the repo's alpha-beta + piece-count evaluator (the repo heuristic —
-    the strength bar a trained model must clear, per the ADR-0005 protocol)."""
+def _opponent_policy(state, opponent):
+    """Return a move index for the opponent on its turn.
+
+    The caller (play_game) needs an index for apply_move.
+    """
+    board = state.board
     if opponent == "random":
-        return random.choice(list(board.legal_moves))
+        move = random.choice(list(board.legal_moves))
+        return MoveMapper.to_index(move, board)
+    # Heuristic: use the repo's alpha-beta search.
     global _HEURISTIC_SEARCH
     if _HEURISTIC_SEARCH is None:
-        _HEURISTIC_SEARCH = AlphaBetaSearch(ChessGame(), SunfishEvaluation(), depth=4)
-    state = Position(board, 1 if board.turn == chess.WHITE else -1, board.fen(), encode_board(board))
-    policy, _, _ = _HEURISTIC_SEARCH.search(state)
-    legal = list(dict.fromkeys(MoveMapper.to_index(m, board) for m in board.legal_moves))
+        _HEURISTIC_SEARCH = AlphaBetaSearch(
+            ChessGame(), SunfishEvaluation(), depth=4
+        )
+    pos = Position(
+        board, 1 if board.turn == chess.WHITE else -1,
+        board.fen(), encode_board(board)
+    )
+    policy, _, _ = _HEURISTIC_SEARCH.search(pos)
+    legal = list(dict.fromkeys(
+        MoveMapper.to_index(m, board) for m in board.legal_moves
+    ))
     idx = int(np.argmax(policy[legal]))
-    return MoveMapper.from_index(legal[idx], board)
+    return legal[idx]
 
 
 @click.group()
@@ -145,27 +156,40 @@ def _evaluate_impl(is_local=False, opponent: str = "random"):
 
     wins, draws, losses = 0, 0, 0
 
+    # Place model on device once (before the loop) — this is the
+    # caller's responsibility; play_game only handles state transitions.
+
+    game = ChessGame()
+
     for i in range(games):
-        board = chess.Board()
         model_white = i % 2 == 0
 
-        while not board.is_game_over() and len(board.move_stack) < 200:
-            if (board.turn == chess.WHITE) == model_white:
-                state = torch.from_numpy(encode_board(board)).unsqueeze(0).to(device)
+        # Build a policy_fn that routes to model (even moves) or
+        # opponent (odd moves) based on whose turn it is.
+        def policy(state, _model=model, _device=device, _white=model_white):
+            if (state.board.turn == chess.WHITE) == _white:
+                # Model's turn: network inference → softmax → argmax
+                tensor = torch.from_numpy(state.tensor).unsqueeze(0).to(_device)
                 with torch.no_grad():
-                    logits, _ = model(state)
+                    logits, _ = _model(tensor)
                     probs = torch.softmax(logits, dim=1).cpu().numpy()[0]
-                legal_moves = list(board.legal_moves)
-                legal_indices = [MoveMapper.to_index(m, board) for m in legal_moves]
-                move = legal_moves[np.argmax(probs[legal_indices])]
+                legal_indices = [MoveMapper.to_index(m, state.board)
+                                 for m in state.board.legal_moves]
+                return int(np.argmax(probs[legal_indices]))
             else:
-                move = _opponent_move(board, opponent)
-            board.push(move)
+                # Opponent's turn: use opponent policy
+                return _opponent_policy(state, opponent)
 
-        result = board.result()
-        if result == "1/2-1/2":
+        # play_game owns the loop: termination + state transitions.
+        # Caller manages device placement, policy routing, and
+        # win/draw/loss attribution.
+        _, winner = play_game(game, policy, max_moves=200)
+
+        # Winner is from white's perspective (+1=white wins, -1=black wins, 0=draw).
+        # Map to model color: if model plays white, winner==1 → win; else loss.
+        if winner == 0:
             draws += 1
-        elif (result == "1-0") == model_white:
+        elif (winner == 1) == model_white:
             wins += 1
         else:
             losses += 1
@@ -217,10 +241,11 @@ def config_validate():
 @click.confirmation_option(prompt="Reset all configuration to defaults?")
 def config_reset():
     """Reset configuration to defaults"""
-    from src.config import MontyBotConfig
+    from src.config import CONFIG, MontyBotConfig
 
-    global CONFIG
-    CONFIG = MontyBotConfig()
+    defaults = MontyBotConfig()
+    for attr in defaults.model_fields:
+        setattr(CONFIG, attr, getattr(defaults, attr))
     click.echo("✅ Configuration reset to defaults")
 
 
