@@ -104,6 +104,40 @@ class Position:
         self.tensor = tensor
 
 
+def play_game(
+    game: "Game",
+    policy_fn,
+    opponent_fn=None,
+    rng=None,
+    max_moves=200,
+):
+    """Play a game to completion, returning (trajectory, winner).
+
+    The caller provides **policy_fn** and optionally **opponent_fn** —
+    each is a callable(state) → int (move index).  play_game owns the
+    loop: termination via game.is_terminal, state transitions via
+    game.apply_move, and the optional move cap.
+
+    Returns
+        (trajectory: list[Position], winner: int) — winner is +1/−1/0.
+    """
+    state = game.get_initial_state()
+    trajectory = []
+    move_count = 0
+
+    while not game.is_terminal(state) and move_count < max_moves:
+        if opponent_fn is not None and move_count % 2 == 1:
+            move = opponent_fn(state)
+        else:
+            move = policy_fn(state)
+        trajectory.append(state)
+        state = game.apply_move(state, move)
+        move_count += 1
+
+    winner = game.get_winner(state)
+    return trajectory, winner
+
+
 class ChessGame(Game):
     """Real 8x8 chess. State is a ``Position``; the carried board object lets
     the hot path skip FEN re-parsing. Termination (ADR-0006): mate, stalemate,
