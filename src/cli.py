@@ -134,11 +134,14 @@ def _evaluate_impl(is_local=False, opponent: str = "random"):
 
     network = Factory.create_network("alphazero")
     network.load_state_dict(checkpoint["model_state"])
-    model = network.eval()
     device_str = CONFIG.device
     if device_str == "auto":
         device_str = "cuda" if torch.cuda.is_available() else "cpu"
     device = torch.device(device_str)
+    # Move the model to the same device as the input tensors below (which are
+    # built on CONFIG.device, e.g. MPS on Apple Silicon); otherwise forward
+    # fails with a CPU-weights vs MPS-input type mismatch.
+    model = network.to(device).eval()
 
     games = CONFIG.eval_games
     threshold = CONFIG.eval_threshold
