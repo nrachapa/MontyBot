@@ -104,7 +104,7 @@ class Position:
         self.tensor = tensor
 
 
-class GameTerminated(Exception):
+class GameTerminated(Exception):  # noqa: N818
     """Raised by a policy_fn to signal the game should end early.
 
     Used when the search returns a zero policy (no legal moves found),
@@ -137,10 +137,7 @@ def play_game(
 
     while not game.is_terminal(state) and move_count < max_moves:
         try:
-            if opponent_fn is not None and move_count % 2 == 1:
-                move = opponent_fn(state)
-            else:
-                move = policy_fn(state)
+            move = opponent_fn(state) if opponent_fn is not None and move_count % 2 == 1 else policy_fn(state)
         except GameTerminated:
             break
         trajectory.append(state)

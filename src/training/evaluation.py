@@ -1,7 +1,12 @@
+from typing import TYPE_CHECKING
+
 import chess
 
-from ..core import EvaluationStrategy
-from .evaluation_data import piece_val, pst
+from ..core import EvaluationStrategy  # noqa: F401
+from .evaluation_data import piece_val, pst  # noqa: F401
+
+if TYPE_CHECKING:
+    from .game import Position  # noqa: F401
 
 
 class SunfishEvaluation(EvaluationStrategy):
@@ -11,7 +16,7 @@ class SunfishEvaluation(EvaluationStrategy):
     — no FEN re-parse, no tuple unpacking.
     """
 
-    def evaluate(self, state: "Position") -> float:
+    def evaluate(self, state: "Position") -> float:  # noqa: F821
         board = state.board
 
         if board.is_checkmate():
@@ -21,11 +26,11 @@ class SunfishEvaluation(EvaluationStrategy):
             turn_is_white = board.turn == chess.WHITE
             if turn_is_white and state.color == 1:
                 return -99999  # White to move, White is checkmated, White perspective
-            elif turn_is_white and state.color == -1:
+            if turn_is_white and state.color == -1:
                 return 99999   # White to move, White is checkmated, Black perspective
-            elif not turn_is_white and state.color == -1:
+            if not turn_is_white and state.color == -1:
                 return -99999  # Black to move, Black is checkmated, Black perspective
-            elif not turn_is_white and state.color == 1:
+            if not turn_is_white and state.color == 1:
                 return 99999   # Black to move, Black is checkmated, White perspective
         if board.is_stalemate() or board.is_insufficient_material():
             return 0.0
@@ -58,5 +63,5 @@ class SunfishEvaluation(EvaluationStrategy):
 class ZeroEvaluation(EvaluationStrategy):
     """A zero-opponent evaluator that always returns 0."""
 
-    def evaluate(self, state: "Position") -> float:
+    def evaluate(self, state: "Position") -> float:  # noqa: F821
         return 0.0

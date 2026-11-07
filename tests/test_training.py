@@ -627,7 +627,7 @@ class TestVectorizedMCTS:
         assert len(trajs) == 1
         traj = trajs[0]
         assert len(traj) >= 2
-        (s0, p0, v0), (s1, p1, v1) = traj[0], traj[1]
+        (s0, p0, v0), (s1, _p1, v1) = traj[0], traj[1]
         assert s0.color == 1 and s1.color == -1
         assert -1.0 <= v0 <= 1.0 and -1.0 <= v1 <= 1.0
         legal = set(game.get_legal_moves(s0))

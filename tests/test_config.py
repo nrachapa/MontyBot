@@ -116,7 +116,7 @@ class TestConfiguration:
     def test_device_consistent_across_module_imports(self):
         """resolve_device() returns the same value as MontyBotConfig().device
         for any non-'auto' device, and CONFIG.device is already resolved."""
-        from src.config import CONFIG, resolve_device, MontyBotConfig
+        from src.config import CONFIG, MontyBotConfig, resolve_device
 
         # CONFIG.device should already be resolved (not 'auto')
         assert CONFIG.device != "auto" or resolve_device("auto") in ("cpu", "cuda", "mps")

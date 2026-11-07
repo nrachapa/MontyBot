@@ -176,9 +176,8 @@ def _evaluate_impl(is_local=False, opponent: str = "random"):
                 legal_indices = [MoveMapper.to_index(m, state.board)
                                  for m in state.board.legal_moves]
                 return int(np.argmax(probs[legal_indices]))
-            else:
-                # Opponent's turn: use opponent policy
-                return _opponent_policy(state, opponent)
+            # Opponent's turn: use opponent policy
+            return _opponent_policy(state, opponent)
 
         # play_game owns the loop: termination + state transitions.
         # Caller manages device placement, policy routing, and

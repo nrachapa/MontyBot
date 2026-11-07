@@ -14,8 +14,8 @@ from src.training.evaluation import SunfishEvaluation
 from src.training.game import ChessGame
 from src.training.network import AlphaZeroNet
 from src.training.search import (
-    AlphaBetaSearch,
     MCTS,
+    AlphaBetaSearch,
     ParallelSelfPlay,
     SunfishSearch,
     VectorizedMCTS,

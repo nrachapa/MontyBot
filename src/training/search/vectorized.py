@@ -209,7 +209,7 @@ class VectorizedMCTS(SearchStrategy):
         new = dirichlet_perturb(self.priors[k], ep, self.dirichlet_eps)
         if self.n_children[k] > 0:
             return  # warm root: children keep their edge priors
-        for j, a in enumerate(acts):
+        for _j, a in enumerate(acts):
             self.priors[k, int(a)] = new[int(a)]
 
     def _batch_net(self, batch: list[int]) -> None:
@@ -231,7 +231,7 @@ class VectorizedMCTS(SearchStrategy):
         scores = puct_score(q, self.priors[f, self.actions[f]], pn, n, self.c_puct)
         if f.size >= self.batch:
             top = np.argpartition(scores, -self.batch)[-self.batch:]
-            take = set(int(f[i]) for i in top)
+            take = {int(f[i]) for i in top}
             self.frontier = [k for k in self.frontier if k not in take]
             return [int(f[i]) for i in top]
         self.frontier = []

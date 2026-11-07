@@ -88,14 +88,15 @@ def resolve_device(v: str) -> str:
         return "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
     return v
 
-    def model_post_init(self, __context):
-        """Handle GPU scaling after validation."""
-        if self.device == "cuda" and torch.cuda.is_available():
-            gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1e9
-            if gpu_memory < 8:
-                object.__setattr__(self, "batch_size", 16)
-            elif gpu_memory > 16:
-                object.__setattr__(self, "batch_size", 64)
+
+def model_post_init(self, __context):
+    """Handle GPU scaling after validation."""
+    if self.device == "cuda" and torch.cuda.is_available():
+        gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1e9
+        if gpu_memory < 8:
+            object.__setattr__(self, "batch_size", 16)
+        elif gpu_memory > 16:
+            object.__setattr__(self, "batch_size", 64)
 
 
 # Global configuration instance
