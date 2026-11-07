@@ -39,7 +39,7 @@ class MontyBotConfig(BaseConfig):
     framework_version: str = "2.2.0"
     python_version: str = "py310"
     max_run_seconds: int = Field(default=86400, gt=0)
-    max_wait_seconds: int = Field(default=14400, gt=0)
+    max_wait_seconds: int = Field(default=172800, gt=0)
     poll_seconds: int = Field(default=20, gt=0)
     job_name: str = Field(default=f"montybot-gpu-training-{utc_time}", min_length=1)
     spot_instances: bool = True
@@ -87,6 +87,17 @@ class MontyBotConfig(BaseConfig):
             elif gpu_memory > 16:
                 object.__setattr__(self, "batch_size", 64)
         return self
+
+
+def resolve_device(v: str) -> str:
+    """Resolve an 'auto' device string to the available hardware.
+
+    Reads 'auto' literally; anything else is returned unchanged.  Used by
+    modules that need the resolved device without pulling the full CONFIG.
+    """
+    if v == "auto":
+        return "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
+    return v
 
 
 # Global configuration instance
