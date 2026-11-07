@@ -8,7 +8,7 @@ import click
 import numpy as np
 import torch
 
-from src.config import CONFIG
+from src.config import CONFIG, resolve_device
 from src.infra.s3_manager import S3Manager
 from src.training.evaluation import SunfishEvaluation
 from src.training.game import ChessGame, MoveMapper, Position, encode_board, play_game
@@ -91,7 +91,7 @@ def train(iterations, filters, blocks, batch_size, cloud, instance_type, on_dema
         click.echo("🏠 Starting local training...")
         from src.training.trainer import Trainer
 
-        trainer = Trainer()
+        trainer = Trainer(CONFIG)
         trainer.train(CONFIG.iterations)
 
 
@@ -143,13 +143,10 @@ def _evaluate_impl(is_local=False, opponent: str = "random"):
         CONFIG.filters = saved_config.get("filters", CONFIG.filters)
         CONFIG.blocks = saved_config.get("blocks", CONFIG.blocks)
 
-    network = Factory.create_network("alphazero")
+    network = Factory.create_network("alphazero", CONFIG)
     network.load_state_dict(checkpoint["model_state"])
     model = network.eval()
-    device_str = CONFIG.device
-    if device_str == "auto":
-        device_str = "cuda" if torch.cuda.is_available() else "cpu"
-    device = torch.device(device_str)
+    device = torch.device(resolve_device(CONFIG.device))
 
     games = CONFIG.eval_games
     threshold = CONFIG.eval_threshold

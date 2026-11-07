@@ -296,7 +296,7 @@ class TestEvaluateImpl:
             _evaluate_impl()
             # Should complete without error
             mock_s3_manager.assert_called_once()
-            mock_factory.assert_called_once_with("alphazero")
+            mock_factory.assert_called_once()
             # play_game was called once (for 1 game)
             mock_play.assert_called_once()
         finally:

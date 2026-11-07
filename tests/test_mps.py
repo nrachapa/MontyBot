@@ -42,7 +42,7 @@ def test_train_step_mps():
     try:
         CONFIG.mixed_precision = True
         net = AlphaZeroNet()
-        trainer = AlphaZeroTraining(net, torch.device("mps"))
+        trainer = AlphaZeroTraining(net, torch.device("mps"), CONFIG.learning_rate, CONFIG.mixed_precision)
         before = {k: v.clone() for k, v in net.state_dict().items()}
         loss = trainer.train_step(_batch())
         assert np.isfinite(loss)
@@ -55,7 +55,7 @@ def test_train_step_mps_no_autocast():
     CONFIG.mixed_precision = False
     try:
         net = AlphaZeroNet()
-        trainer = AlphaZeroTraining(net, torch.device("mps"))
+        trainer = AlphaZeroTraining(net, torch.device("mps"), CONFIG.learning_rate, CONFIG.mixed_precision)
         loss = trainer.train_step(_batch())
         assert np.isfinite(loss)
     finally:

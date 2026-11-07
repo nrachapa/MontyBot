@@ -3,7 +3,6 @@ from typing import Any
 import chess
 import numpy as np
 
-from ...config import CONFIG
 from ...core import Game, SearchStrategy
 from ..game import MoveMapper, Position
 
@@ -13,9 +12,9 @@ class SunfishSearch(SearchStrategy):
     Heuristic search using Sunfish evaluation (PST + Material).
     """
 
-    def __init__(self, game: Game, evaluator: Any):
+    def __init__(self, game: Game, evaluator: Any, action_size: int):
         self.game = game
-        self.action_size = CONFIG.action_size
+        self.action_size = action_size
         self.evaluator = evaluator
         self.network = None  # Explicitly set to None to avoid AttributeError
 
@@ -81,9 +80,9 @@ class AlphaBetaSearch(SearchStrategy):
     Alpha-Beta Pruning search using an evaluator.
     """
 
-    def __init__(self, game: Game, evaluator: Any, depth: int = 3):
+    def __init__(self, game: Game, evaluator: Any, depth: int = 3, action_size: int = 133):
         self.game = game
-        self.action_size = CONFIG.action_size
+        self.action_size = action_size
         self.evaluator = evaluator
         self.depth = depth
         self.network = None

@@ -36,14 +36,14 @@ def tiny_net():
 def _make(name, net):
     game = ChessGame()
     if name == "mcts":
-        return MCTS(game, net, simulations=2)
+        return MCTS(game, net, simulations=2, action_size=CONFIG.action_size, gen_device="cpu")
     if name == "vectorized_mcts":
-        return VectorizedMCTS(game, net, simulations=2, batch=4, pool=1024)
+        return VectorizedMCTS(game, net, simulations=2, batch=4, gen_device="cpu", pool=1024)
     if name == "sunfish":
-        return SunfishSearch(game, SunfishEvaluation())
+        return SunfishSearch(game, SunfishEvaluation(), CONFIG.action_size)
     if name == "alphabeta":
-        return AlphaBetaSearch(game, SunfishEvaluation())
-    return ParallelSelfPlay(game, MCTS(game, net, simulations=2))  # selfplay
+        return AlphaBetaSearch(game, SunfishEvaluation(), action_size=CONFIG.action_size)
+    return ParallelSelfPlay(game, MCTS(game, net, simulations=2, action_size=CONFIG.action_size, gen_device="cpu"), gen_device="cpu", batch_size=CONFIG.batch_size)
 
 
 @pytest.mark.parametrize("name", ["mcts", "vectorized_mcts", "sunfish", "alphabeta", "selfplay"])
@@ -56,6 +56,6 @@ def test_search_classes_pickle(name, tiny_net):
 def test_vectorized_pool_survives_pickle(tiny_net):
     """The pool is stripped from the pickled state and re-allocated on load
     (workers each allocate their own); the shape must come back intact."""
-    obj = VectorizedMCTS(ChessGame(), tiny_net, simulations=2, batch=4, pool=1024)
+    obj = VectorizedMCTS(ChessGame(), tiny_net, simulations=2, batch=4, gen_device="cpu", pool=1024)
     clone = pickle.loads(pickle.dumps(obj))
     assert clone.legal.shape == (1024, 133)

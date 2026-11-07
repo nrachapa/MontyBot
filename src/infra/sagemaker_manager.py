@@ -9,7 +9,6 @@ import boto3
 import torch
 from sagemaker import get_execution_role
 from sagemaker.pytorch import PyTorch
-from torch.cuda.amp import GradScaler, autocast
 
 # Ensure container paths include project root and src for imports
 _cwd = os.getcwd()
@@ -18,21 +17,28 @@ for p in ["/opt/ml/code", "/opt/ml/code/src", _cwd, os.path.join(_cwd, "src")]:
         sys.path.insert(0, p)
 
 
-def load_aws_config(path: str | None = None):
-    # Legacy function for compatibility - now uses CONFIG
-    from src.config import CONFIG
+def load_aws_config(config=None):
+    """Return AWS/training config as a dict.
+
+    When *config* is not given the function falls back to the global CONFIG
+    singleton for backwards compatibility with callers that haven't been
+    updated yet.
+    """
+    if config is None:
+        from src.config import CONFIG
+        config = CONFIG
 
     return {
         "training": {
-            "iterations": CONFIG.iterations,
-            "job_name": CONFIG.job_name,
-            "max_wait_seconds": CONFIG.max_wait_seconds,
-            "max_run_seconds": CONFIG.max_run_seconds,
-            "poll_seconds": CONFIG.poll_seconds,
-            "default_instance_type": CONFIG.default_instance_type,
-            "spot_instances": CONFIG.spot_instances,
+            "iterations": config.iterations,
+            "job_name": config.job_name,
+            "max_wait_seconds": config.max_wait_seconds,
+            "max_run_seconds": config.max_run_seconds,
+            "poll_seconds": config.poll_seconds,
+            "default_instance_type": config.default_instance_type,
+            "spot_instances": config.spot_instances,
         },
-        "aws": {"s3": {"bucket": CONFIG.bucket}, "credentials": {"role_arn": CONFIG.role_arn}},
+        "aws": {"s3": {"bucket": config.bucket}, "credentials": {"role_arn": config.role_arn}},
     }
 
 
@@ -45,10 +51,20 @@ def parse_args():
     return parser.parse_args()
 
 
-def launch_job(args=None, instance_type: str | None = None):
-    config = load_aws_config()
-    trn = config["training"]
-    aws = config["aws"]
+def launch_job(args=None, instance_type: str | None = None, config=None):
+    if config is None:
+        from src.config import CONFIG
+        config = CONFIG
+    trn = {
+        "iterations": config.iterations,
+        "job_name": config.job_name,
+        "max_wait_seconds": config.max_wait_seconds,
+        "max_run_seconds": config.max_run_seconds,
+        "poll_seconds": config.poll_seconds,
+        "default_instance_type": config.default_instance_type,
+        "spot_instances": config.spot_instances,
+    }
+    aws = {"s3": {"bucket": config.bucket}, "credentials": {"role_arn": config.role_arn}}
     creds = aws["credentials"]
     job_name = trn["job_name"]
     iterations = trn["iterations"]
@@ -128,18 +144,28 @@ def wait_for_job(job_name: str, poll_seconds: int = 30) -> str:
         time.sleep(poll_seconds)
 
 
-def launch_training(instance_type: str | None = None):
+def launch_training(instance_type: str | None = None, config=None):
     """Launch training without parsing CLI arguments (for use by CLI)"""
-    job_name = launch_job(instance_type=instance_type)
+    if config is None:
+        from src.config import CONFIG
+        config = CONFIG
+    job_name = launch_job(instance_type=instance_type, config=config)
     print(f"Monitor: aws sagemaker describe-training-job --training-job-name {job_name}")
-    config = load_aws_config()
-    poll_seconds = int(config.get("training", {}).get("poll_seconds", 30))
+    trn = {
+        "iterations": config.iterations,
+        "job_name": config.job_name,
+        "max_wait_seconds": config.max_wait_seconds,
+        "max_run_seconds": config.max_run_seconds,
+        "poll_seconds": config.poll_seconds,
+        "default_instance_type": config.default_instance_type,
+        "spot_instances": config.spot_instances,
+    }
+    poll_seconds = int(trn.get("poll_seconds", 30))
     wait_for_job(job_name, poll_seconds)
 
 
 class SageMakerTrainer:
-    def __init__(self, s3_manager):
-        from src.config import CONFIG
+    def __init__(self, s3_manager, config):
         from src.training.trainer import Trainer
 
         # Enable TensorFloat-32 for T4 GPU speedup (2-3x faster matmul)
@@ -147,20 +173,21 @@ class SageMakerTrainer:
             torch.backends.cuda.matmul.allow_tf32 = True
             torch.backends.cudnn.allow_tf32 = True
 
-        self.trainer = Trainer()
+        self.config = config
+        self.trainer = Trainer(config)
         self.s3_manager = s3_manager
         # Enable AMP scaler only when mixed precision is requested and CUDA is available
-        self.scaler = GradScaler() if (CONFIG.mixed_precision and torch.cuda.is_available()) else None
+        self.scaler = (
+            torch.cuda.amp.GradScaler() if config.mixed_precision and torch.cuda.is_available() else None
+        )
         self.start_iteration = 0
 
     def save_checkpoint(self, iteration: int):
-        from src.config import CONFIG
-
         checkpoint = {
             "model_state": self.trainer.network.state_dict(),
             "optimizer_state": self.trainer.training.opt.state_dict(),
             "iteration": iteration,
-            "config": CONFIG.model_dump(),
+            "config": self.config.model_dump(),
         }
         self.s3_manager.upload_checkpoint(checkpoint, iteration)
         print(f"Saved checkpoint at iteration {iteration}")
@@ -175,21 +202,19 @@ class SageMakerTrainer:
         print(f"Resumed from iteration {checkpoint.get('iteration')} (continuing at {self.start_iteration})")
 
     def train_gpu(self, iterations: int):
-        from src.config import CONFIG
-
         for i in range(self.start_iteration, iterations):
-            trajectories = self.trainer.selfplay.generate_games(CONFIG.games_per_iteration)
+            trajectories = self.trainer.selfplay.generate_games(self.config.games_per_iteration)
             self.trainer.buffer.add_batch(trajectories)
 
             losses = []
-            for _ in range(CONFIG.train_steps):
-                batch = self.trainer.buffer.sample(CONFIG.batch_size)
+            for _ in range(self.config.train_steps):
+                batch = self.trainer.buffer.sample(self.config.batch_size)
                 if not batch:
                     continue
 
                 # Use autocast only when mixed precision is requested and CUDA is available
-                if CONFIG.mixed_precision and torch.cuda.is_available():
-                    with autocast():
+                if self.config.mixed_precision and torch.cuda.is_available():
+                    with torch.cuda.amp.autocast():
                         loss = self.trainer.training.train_step(batch)
                 else:
                     loss = self.trainer.training.train_step(batch)
@@ -206,46 +231,26 @@ class SageMakerTrainer:
 def main():
     args = parse_args()
 
+    from src.config import CONFIG
+
     # If running as SageMaker training script
     if args.s3_bucket and args.job_name:
-        from src.config import CONFIG
         from src.infra.s3_manager import S3Manager
 
-        # Cloud-optimized config (ADR-0007: self-play on GPU; ADR-0009 net C;
-        # the bigger net-eval batch amortizes on the T4). Set before the
-        # Trainer builds the net/search; restored in `finally` so this global
-        # mutation never leaks past main() (the container exits anyway, but a
-        # test may call main() and then keep running).
-        saved = (
-            CONFIG.gen_device, CONFIG.filters, CONFIG.blocks,
-            CONFIG.simulations, CONFIG.net_eval_batch,
-        )
-        try:
-            CONFIG.gen_device = "cuda"
-            CONFIG.filters = 256
-            CONFIG.blocks = 8
-            CONFIG.simulations = 64
-            CONFIG.net_eval_batch = 64
-
-            s3_manager = S3Manager(args.s3_bucket, prefix=args.job_name)
-            # Ensure the checkpoint bucket exists prior to any upload attempts
-            s3_manager.ensure_bucket_exists()
-            trainer = SageMakerTrainer(s3_manager)
-            # Resume from this job's last checkpoint if the container restarted
-            # (spot preemption); otherwise start from iteration 0.
-            checkpoint = s3_manager.download_latest_for_prefix()
-            if checkpoint:
-                trainer.load_checkpoint(checkpoint)
-            trainer.train_gpu(args.iterations)
-            print("Training completed")
-        finally:
-            (
-                CONFIG.gen_device, CONFIG.filters, CONFIG.blocks,
-                CONFIG.simulations, CONFIG.net_eval_batch,
-            ) = saved
+        s3_manager = S3Manager(args.s3_bucket, prefix=args.job_name)
+        # Ensure the checkpoint bucket exists prior to any upload attempts
+        s3_manager.ensure_bucket_exists()
+        trainer = SageMakerTrainer(s3_manager, CONFIG)
+        # Resume from this job's last checkpoint if the container restarted
+        # (spot preemption); otherwise start from iteration 0.
+        checkpoint = s3_manager.download_latest_for_prefix()
+        if checkpoint:
+            trainer.load_checkpoint(checkpoint)
+        trainer.train_gpu(args.iterations)
+        print("Training completed")
     else:
         # Running as launcher
-        job_name = launch_job(args)
+        job_name = launch_job(args, config=CONFIG)
         print(f"Monitor: aws sagemaker describe-training-job --training-job-name {job_name}")
         config = load_aws_config()
         poll_seconds = int(config.get("training", {}).get("poll_seconds", 30))

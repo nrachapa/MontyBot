@@ -21,14 +21,20 @@ class ResBlock(nn.Module):
 
 
 class AlphaZeroNet(Network, nn.Module):
-    def __init__(self):
+    def __init__(
+        self,
+        filters: int = 128,
+        blocks: int = 4,
+        input_planes: int = 8,
+        action_size: int = 133,
+    ) -> None:
         super().__init__()
-        self.conv = nn.Conv2d(CONFIG.input_planes, CONFIG.filters, 3, padding=1)
-        self.blocks = nn.Sequential(*[ResBlock(CONFIG.filters) for _ in range(CONFIG.blocks)])
+        self.conv = nn.Conv2d(input_planes, filters, 3, padding=1)
+        self.blocks = nn.Sequential(*[ResBlock(filters) for _ in range(blocks)])
         self.head_p = nn.Sequential(
-            nn.Conv2d(CONFIG.filters, 2, 1), nn.Flatten(), nn.Linear(2 * 8 * 8, CONFIG.action_size)
+            nn.Conv2d(filters, 2, 1), nn.Flatten(), nn.Linear(2 * 8 * 8, action_size)
         )
-        self.head_v = nn.Sequential(nn.Conv2d(CONFIG.filters, 1, 1), nn.Flatten(), nn.Linear(1 * 8 * 8, 1))
+        self.head_v = nn.Sequential(nn.Conv2d(filters, 1, 1), nn.Flatten(), nn.Linear(1 * 8 * 8, 1))
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         z = F.relu(self.conv(x))

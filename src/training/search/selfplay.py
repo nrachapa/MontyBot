@@ -6,7 +6,6 @@ from typing import Any
 import numpy as np
 import torch
 
-from ...config import CONFIG
 from ...core import Game, SearchStrategy, SelfPlayStrategy
 from ..batch_manager import BatchManager
 
@@ -27,14 +26,15 @@ def worker_init(clients, num_workers: int) -> None:
         worker_num = identity[0] - 1 if identity else 0
         WORKER_CLIENT = clients[worker_num % len(clients)]
     # Optimization: workers only build leaf tensors on the generation device.
-    CONFIG.device = CONFIG.gen_device
     torch.set_num_threads(max(1, (os.cpu_count() or 1) // max(1, num_workers)))
 
 
 class ParallelSelfPlay(SelfPlayStrategy):
-    def __init__(self, game: Game, search: SearchStrategy):
+    def __init__(self, game: Game, search: SearchStrategy, gen_device: str, batch_size: int):
         self.game = game
         self.search = search
+        self.gen_device = gen_device
+        self.batch_size = batch_size
 
     def generate_games(self, n_games: int) -> list[Any]:
         if os.environ.get("PYTEST_RUNNING") == "1":
@@ -48,7 +48,7 @@ class ParallelSelfPlay(SelfPlayStrategy):
         manager = None
         clients = []
         if not getattr(self.search, "vectorized", False) and getattr(self.search, "network", None):
-            manager = BatchManager(self.search.network, torch.device(CONFIG.gen_device), batch_size=CONFIG.batch_size, timeout=0.01)
+            manager = BatchManager(self.search.network, torch.device(self.gen_device), batch_size=self.batch_size, timeout=0.01)
             manager.start()
             clients = [manager.create_client() for _ in range(num_workers)]
 
@@ -95,5 +95,6 @@ class ParallelSelfPlay(SelfPlayStrategy):
         # Value target = (1-2c)v + 2c*winner*color (AlphaZero convention):
         # the discounted search value bootstraps the value head toward a
         # positional read, anchored to the actual game outcome.
+        from src.config import CONFIG
         c = CONFIG.c_discount
         return [(s, p, (1 - 2 * c) * v + 2 * c * winner * s.color) for (s, p, v) in traj]

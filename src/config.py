@@ -72,10 +72,21 @@ class MontyBotConfig(BaseConfig):
 
     @field_validator("device", "gen_device")
     @classmethod
-    def resolve_device(cls, v):
+    def _resolve_device(cls, v):
         if v == "auto":
             return "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
         return v
+
+
+def resolve_device(v: str) -> str:
+    """Resolve an 'auto' device string to the available hardware.
+
+  Reads 'auto' literally; anything else is returned unchanged.  Used by
+  modules that need the resolved device without pulling the full CONFIG.
+    """
+    if v == "auto":
+        return "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
+    return v
 
     def model_post_init(self, __context):
         """Handle GPU scaling after validation."""

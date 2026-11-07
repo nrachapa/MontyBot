@@ -80,7 +80,7 @@ class TestMCTSSunfish:
     def test_search_returns_valid_policy(self):
         game = ChessGame()
         evaluator = SunfishEvaluation()
-        search = SunfishSearch(game, evaluator)
+        search = SunfishSearch(game, evaluator, action_size=MoveMapper.ACTION_SIZE)
         state = game.get_initial_state()
 
         policy, _, _ = search.search(state)
@@ -92,7 +92,7 @@ class TestMCTSSunfish:
         """Sunfish search should favor good moves over bad ones."""
         game = ChessGame()
         evaluator = SunfishEvaluation()
-        search = SunfishSearch(game, evaluator)
+        search = SunfishSearch(game, evaluator, action_size=MoveMapper.ACTION_SIZE)
 
         # Position where taking the queen is obvious
         # White to move. Black Queen on d5 hanging.

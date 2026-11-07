@@ -3,7 +3,6 @@ from typing import Any
 import numpy as np
 import torch
 
-from ...config import CONFIG
 from ...core import Game, Network, SearchStrategy
 from ..game import MoveMapper, Position, encode_board
 from ._core import backup_value, dirichlet_perturb, puct_score
@@ -52,24 +51,29 @@ class VectorizedMCTS(SearchStrategy):
 
     vectorized = True
 
-    def __init__(self, game: Game, network: Network, simulations: int | None = None,
-                 batch: int | None = None, pool: int = 50_000) -> None:
-        from ...config import CONFIG
-
+    def __init__(
+        self,
+        game: Game,
+        network: Network,
+        simulations: int,
+        batch: int,
+        gen_device: str,
+        pool: int = 50_000,
+    ) -> None:
         self.game = game
         self.network = network
         self.network.eval()
-        self.simulations = simulations if simulations is not None else CONFIG.simulations
-        self.batch = batch if batch is not None else CONFIG.net_eval_batch
+        self.simulations = simulations
+        self.batch = batch
         self.c_puct = 1.0  # matches MCTS
         self.dirichlet_alpha = 0.3
         self.dirichlet_eps = 0.25
         self.pool_cap = pool
         # Where the (pickled) net lives / will run: the configured
         # generation device. x.to(net_device) moves the input in either
-        # direction, so a worker whose fresh CONFIG differs still lands on
+        # direction, so a worker whose fresh config differs still lands on
         # the right device for the unpickled net.
-        self.net_device = torch.device(CONFIG.gen_device)
+        self.net_device = torch.device(gen_device)
         self._alloc_pool()
         self._reset()
 

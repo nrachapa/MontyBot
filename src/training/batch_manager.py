@@ -16,8 +16,6 @@ from typing import Any
 import numpy as np
 import torch
 
-from ..config import CONFIG
-
 
 class BatchClient:
     """
@@ -54,10 +52,10 @@ class BatchManager:
     Manages batching of inference requests.
     """
 
-    def __init__(self, network: Any, device: str, batch_size: int = None, timeout: float = 0.05):
+    def __init__(self, network: Any, device: str, batch_size: int, timeout: float = 0.05):
         self.network = network
         self.device = device
-        self.batch_size = batch_size or CONFIG.batch_size
+        self.batch_size = batch_size
         self.timeout = timeout
         self.running = False
         self.thread = None

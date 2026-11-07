@@ -34,8 +34,8 @@ def test_parallel_selfplay_integration():
         # On Mac, default is 'spawn'. Objects must be pickleable.
         # Net is pickleable. Game is pickleable.
 
-        search = MCTS(game, net, simulations=2)
-        sp = ParallelSelfPlay(game, search)
+        search = MCTS(game, net, simulations=2, action_size=CONFIG.action_size, gen_device="cpu")
+        sp = ParallelSelfPlay(game, search, gen_device="cpu", batch_size=CONFIG.batch_size)
 
         # Run generation
         # We use a small number of games

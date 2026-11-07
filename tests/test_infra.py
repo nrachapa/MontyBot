@@ -244,7 +244,7 @@ class TestSageMakerIntegration:
         CONFIG.mixed_precision = False
 
         try:
-            trainer = SageMakerTrainer(s3_manager)
+            trainer = SageMakerTrainer(s3_manager, CONFIG)
             # train_gpu reads these off the nested Trainer: mock there, not on
             # the SageMakerTrainer wrapper (which has no such attributes).
             trainer.trainer.selfplay = Mock()
@@ -280,12 +280,12 @@ class TestSageMakerIntegration:
         try:
             # AMP scaler should only be enabled when CUDA is available
             with patch("torch.cuda.is_available", return_value=False), patch("torch.cuda.amp.GradScaler"):
-                trainer = SageMakerTrainer(s3_manager)
+                trainer = SageMakerTrainer(s3_manager, CONFIG)
                 assert trainer.scaler is None
 
             # When CUDA is available, scaler should be created
             with patch("torch.cuda.is_available", return_value=True), patch("torch.cuda.amp.GradScaler"):
-                trainer = SageMakerTrainer(s3_manager)
+                trainer = SageMakerTrainer(s3_manager, CONFIG)
                 assert trainer.scaler is not None
         finally:
             CONFIG.filters = original_filters
@@ -313,7 +313,7 @@ class TestSageMakerIntegration:
         CONFIG.mixed_precision = False
 
         try:
-            trainer = SageMakerTrainer(s3_manager)
+            trainer = SageMakerTrainer(s3_manager, CONFIG)
 
             # Mock components after trainer initialization
             trainer.trainer.selfplay = Mock()
@@ -358,7 +358,7 @@ class TestSageMakerIntegration:
                 patch("torch.cuda.amp.GradScaler"),
                 patch("torch.cuda.amp.autocast"),
             ):
-                trainer = SageMakerTrainer(s3_manager)
+                trainer = SageMakerTrainer(s3_manager, CONFIG)
 
             # Mock components for mixed precision path (nested Trainer —
             # train_gpu reads them off self.trainer)

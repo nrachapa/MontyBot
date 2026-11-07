@@ -5,15 +5,14 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from ..config import CONFIG
 from ..core import TrainingStrategy
 from .network import AlphaZeroNet
 
 
 class AlphaZeroTraining(TrainingStrategy):
-    def __init__(self, network: AlphaZeroNet, device: torch.device):
+    def __init__(self, network: AlphaZeroNet, device: torch.device, learning_rate: float, mixed_precision: bool):
         self.net = network.to(device).train()
-        self.opt = torch.optim.Adam(self.net.parameters(), lr=CONFIG.learning_rate)
+        self.opt = torch.optim.Adam(self.net.parameters(), lr=learning_rate)
         self.device = device
         # Mixed precision (ticket 09): torch 2.2 has autocast for CUDA only.
         # MPS has no autocast device_type, no GradScaler, and fp16 BatchNorm
@@ -21,7 +20,7 @@ class AlphaZeroTraining(TrainingStrategy):
         # what that costs and informs the torch 2.5+ upgrade decision.
         self.autocast = (
             torch.autocast(device_type="cuda")
-            if CONFIG.mixed_precision and self.device.type == "cuda"
+            if mixed_precision and self.device.type == "cuda"
             else contextlib.nullcontext()
         )
 

@@ -57,7 +57,7 @@ class TestImplementations:
         # Mock network for MCTS
         network = Mock()
         network.return_value = (torch.randn(1, CONFIG.action_size), torch.randn(1, 1))
-        mcts = MCTS(game, network)
+        mcts = MCTS(game, network, simulations=10, action_size=CONFIG.action_size, gen_device="cpu")
 
         # Mock game state
         state = game.get_initial_state()
@@ -83,7 +83,7 @@ class TestImplementations:
             game = ChessGame()
             network = Mock()
             network.return_value = (torch.zeros(1, CONFIG.action_size), torch.zeros(1, 1))
-            mcts = MCTS(game, network)
+            mcts = MCTS(game, network, simulations=50, action_size=CONFIG.action_size, gen_device="cpu")
 
             state = game.get_initial_state()
             policy, root, _ = mcts.search(state)
@@ -116,7 +116,7 @@ class TestImplementations:
         # All-zero policy: exercises the game-loop exit (a real MCTS policy is
         # zero off the legal actions, so from_index must never see illegal ones).
         search.search.return_value = (np.zeros(CONFIG.action_size, dtype=np.float32), None, 0.0)
-        sp = ParallelSelfPlay(game, search)
+        sp = ParallelSelfPlay(game, search, gen_device="cpu", batch_size=CONFIG.batch_size)
         trajs = sp.generate_games(1)
         assert isinstance(trajs, list) and len(trajs) == 1
 
@@ -143,7 +143,7 @@ class TestImplementations:
 
         search = Mock()
         search.search.side_effect = fake_search
-        sp = ParallelSelfPlay(game, search)
+        sp = ParallelSelfPlay(game, search, gen_device="cpu", batch_size=CONFIG.batch_size)
 
         trajs = sp.generate_games(1)
         traj = trajs[0]
@@ -161,7 +161,7 @@ class TestImplementations:
         game = ChessGame()
         network = Mock()
         network.return_value = (torch.zeros(1, CONFIG.action_size), torch.zeros(1, 1))
-        mcts = MCTS(game, network)
+        mcts = MCTS(game, network, simulations=10, action_size=CONFIG.action_size, gen_device="cpu")
         calls = []
 
         def spy(state, root=None):
@@ -170,7 +170,7 @@ class TestImplementations:
 
         wrapper = Mock()
         wrapper.search.side_effect = spy
-        sp = ParallelSelfPlay(game, wrapper)
+        sp = ParallelSelfPlay(game, wrapper, gen_device="cpu", batch_size=CONFIG.batch_size)
         trajs = sp.generate_games(1)
         assert len(trajs[0]) >= 2  # game lasted > 1 ply
         # First move: fresh root. Every subsequent move: the previous child.
@@ -182,7 +182,7 @@ class TestImplementations:
     def test_training_step_tiny(self, net):
         from src.config import CONFIG
 
-        trainer = AlphaZeroTraining(net, torch.device("cpu"))
+        trainer = AlphaZeroTraining(net, torch.device("cpu"), CONFIG.learning_rate, CONFIG.mixed_precision)
         # Fake batch of 2 chess states
         s = np.zeros((CONFIG.input_planes, 8, 8), dtype=np.float32)
         p = np.zeros(CONFIG.action_size, dtype=np.float32)
@@ -198,6 +198,8 @@ class TestImplementations:
 
     def test_mcts_no_legal_moves_edge(self):
         """Force MCTS path where there are no legal moves."""
+        from src.config import CONFIG
+
         game = ChessGame()
         # Use a checkmated state (Fool's Mate)
         # 1. f3 e5 2. g4 Qh4#
@@ -208,7 +210,7 @@ class TestImplementations:
         state = Position(board, 1, board.fen(), encode_board(board))
 
         network = Mock()
-        mcts = MCTS(game, network)
+        mcts = MCTS(game, network, simulations=10, action_size=CONFIG.action_size, gen_device="cpu")
         policy, _, _ = mcts.search(state)
 
         assert policy.sum() == 0
@@ -224,7 +226,7 @@ class TestImplementations:
         game = ChessGame()
         search = Mock()
         search.search.return_value = (np.ones(CONFIG.action_size) / CONFIG.action_size, None)
-        sp = ParallelSelfPlay(game, search)
+        sp = ParallelSelfPlay(game, search, gen_device="cpu", batch_size=CONFIG.batch_size)
         with patch.dict("os.environ", {}, clear=True):
             trajs = sp.generate_games(1)
         assert isinstance(trajs, list) and len(trajs) == 1
@@ -237,7 +239,7 @@ class TestImplementations:
         game = ChessGame()
         search = Mock()
         search.search.return_value = (np.zeros(CONFIG.action_size, dtype=np.float32), None, 0.0)
-        sp = ParallelSelfPlay(game, search)
+        sp = ParallelSelfPlay(game, search, gen_device="cpu", batch_size=CONFIG.batch_size)
         # Call private method directly to hit the break branch at line 169
         res = sp._play_game(0)
         assert res == []
@@ -305,8 +307,8 @@ class TestImplementations:
         game = ChessGame()
         network = Mock()
         network.return_value = (torch.randn(1, CONFIG.action_size), torch.randn(1, 1))
-        search = MCTS(game, network)
-        selfplay = ParallelSelfPlay(game, search)
+        search = MCTS(game, network, simulations=10, action_size=CONFIG.action_size, gen_device="cpu")
+        selfplay = ParallelSelfPlay(game, search, gen_device="cpu", batch_size=CONFIG.batch_size)
 
         # Should run synchronously in main process
         games = selfplay.generate_games(1)
@@ -519,17 +521,17 @@ class TestExtensibility:
         from src.config import CONFIG
 
         class CustomNet(Network, torch.nn.Module):
-            def __init__(self):
+            def __init__(self, filters=128, blocks=4, input_planes=8, action_size=133):
                 super().__init__()
-                self.l = torch.nn.Linear(12 * 8 * 8, CONFIG.action_size)
+                self.l = torch.nn.Linear(input_planes * 8 * 8, action_size)
 
             def forward(self, x):
                 z = x.view(x.size(0), -1)
                 return self.l(z), torch.tanh(torch.ones((x.size(0), 1)))
 
         Factory._networks["custom"] = CustomNet
-        net = Factory.create_network("custom")
-        x = torch.randn(1, 12, 8, 8)
+        net = Factory.create_network("custom", CONFIG)
+        x = torch.randn(1, CONFIG.input_planes, 8, 8)
         logits, v = net(x)
         assert logits.shape == (1, CONFIG.action_size) and v.shape == (1, 1)
 
@@ -551,7 +553,7 @@ class TestVectorizedMCTS:
         from src.config import CONFIG
 
         game = ChessGame()
-        search = VectorizedMCTS(game, vnet, simulations=10)
+        search = VectorizedMCTS(game, vnet, simulations=10, batch=32, gen_device="cpu")
         state = game.get_initial_state()
         policy, root, value = search.search(state)
         assert isinstance(policy, np.ndarray)
@@ -574,7 +576,7 @@ class TestVectorizedMCTS:
         CONFIG.simulations = 128  # several batched iterations at batch 32
         try:
             game = ChessGame()
-            search = VectorizedMCTS(game, vnet, simulations=128)
+            search = VectorizedMCTS(game, vnet, simulations=128, batch=32, gen_device="cpu")
             state = game.get_initial_state()
             _, root, _ = search.search(state)
             move = max(root.children, key=lambda a: root.children[a].visit_count)
@@ -592,7 +594,7 @@ class TestVectorizedMCTS:
 
     def test_fen_mismatch_starts_fresh_root(self, vnet):
         game = ChessGame()
-        search = VectorizedMCTS(game, vnet, simulations=10)
+        search = VectorizedMCTS(game, vnet, simulations=10, batch=32, gen_device="cpu")
         s0 = game.get_initial_state()
         _, r0, _ = search.search(s0)
         a0 = game.get_legal_moves(s0)[0]  # a guaranteed-legal action
@@ -608,7 +610,7 @@ class TestVectorizedMCTS:
         assert board.is_checkmate()
         game = ChessGame()
         state = Position(board, 1, board.fen(), encode_board(board))
-        search = VectorizedMCTS(game, vnet, simulations=10)
+        search = VectorizedMCTS(game, vnet, simulations=10, batch=32, gen_device="cpu")
         policy, _, value = search.search(state)
         assert policy.sum() == 0
         assert value != 0  # a real winner, own-color perspective
@@ -619,8 +621,8 @@ class TestVectorizedMCTS:
         from src.config import CONFIG
 
         game = ChessGame()
-        search = VectorizedMCTS(game, vnet, simulations=10)
-        sp = ParallelSelfPlay(game, search)
+        search = VectorizedMCTS(game, vnet, simulations=10, batch=32, gen_device="cpu")
+        sp = ParallelSelfPlay(game, search, gen_device="cpu", batch_size=CONFIG.batch_size)
         trajs = sp.generate_games(1)
         assert len(trajs) == 1
         traj = trajs[0]
