@@ -89,6 +89,11 @@ def launch_job(args=None, instance_type: str | None = None, config=None):
         use_spot_instances=use_spot_instances,
         max_wait=trn["max_wait_seconds"],
         max_run=trn["max_run_seconds"],
+        # Unbuffered python: per-iteration prints + tracebacks hit the
+        # container log stream in real time (python's block buffer otherwise
+        # swallows them on spot preemption - the 2026-11-03 run showed only the
+        # toolkit startup line and zero training output for 2 container-hours).
+        env={"PYTHONUNBUFFERED": "1"},
         hyperparameters={"iterations": iterations, "s3_bucket": bucket, "job_name": job_name},
         output_path=f"s3://{bucket}",
         code_location=f"s3://{bucket}",
@@ -190,7 +195,7 @@ class SageMakerTrainer:
             "config": self.config.model_dump(),
         }
         self.s3_manager.upload_checkpoint(checkpoint, iteration)
-        print(f"Saved checkpoint at iteration {iteration}")
+        print(f"Saved checkpoint at iteration {iteration}", flush=True)
 
     def load_checkpoint(self, checkpoint: dict):
         """Restore net weights + optimizer state + the resume iteration from a
@@ -202,10 +207,29 @@ class SageMakerTrainer:
         print(f"Resumed from iteration {checkpoint.get('iteration')} (continuing at {self.start_iteration})")
 
     def train_gpu(self, iterations: int):
+        # Startup marker + the resolved config, so the log stream shows exactly
+        # what this container is running (net size, sims, games/iter, workers,
+        # device) before the first iteration - the 2026-11-03 run was silent here.
+        try:
+            nparams = sum(p.numel() for p in self.trainer.network.parameters()) / 1e6
+        except Exception:  # network may be a Mock in tests
+            nparams = -1.0
+        print(
+            f"=== training start: {iterations} iters, resume from {self.start_iteration}, "
+            f"net {nparams:.2f}M params, games/iter={self.config.games_per_iteration}, "
+            f"sims={self.config.simulations}, train_steps={self.config.train_steps}, "
+            f"batch={self.config.batch_size}, gen_device={self.config.gen_device}, "
+            f"train_device={self.trainer.device}, workers={max(1, (os.cpu_count() or 1) - 2)} ===",
+            flush=True,
+        )
         for i in range(self.start_iteration, iterations):
+            t0 = time.time()
             trajectories = self.trainer.selfplay.generate_games(self.config.games_per_iteration)
+            t_sp = time.time() - t0
             self.trainer.buffer.add_batch(trajectories)
+            print(f"Iteration {i}: self-play {t_sp:.1f}s ({len(trajectories)} games)", flush=True)
 
+            t1 = time.time()
             losses = []
             for _ in range(self.config.train_steps):
                 batch = self.trainer.buffer.sample(self.config.batch_size)
@@ -221,11 +245,19 @@ class SageMakerTrainer:
                 losses.append(loss)
 
             avg_loss = sum(losses) / len(losses) if losses else 0.0
-            print(f"Iteration {i}: Loss = {avg_loss:.4f}")
+            print(
+                f"Iteration {i}: Loss={avg_loss:.4f} | train={time.time()-t1:.1f}s "
+                f"| self-play={t_sp:.1f}s | total={time.time()-t0:.1f}s",
+                flush=True,
+            )
 
+            # Checkpoint at each iteration boundary so a spot preemption between
+            # iterations resumes at the last completed net. The self-play phase is
+            # regenerated on resume; the learned weights are what we preserve.
             self.save_checkpoint(i)
 
         self.save_checkpoint(iterations)
+        print("Training completed", flush=True)
 
 
 def main():
@@ -237,17 +269,26 @@ def main():
     if args.s3_bucket and args.job_name:
         from src.infra.s3_manager import S3Manager
 
+        # Cloud-optimized: run self-play + training on the GPU (gen_device=cuda,
+        # ADR-0007). The net/sims/net-eval-batch keep their config defaults -
+        # the M6-validated 128/4 (~1.2M, ticket 10) at sims=10, net_eval_batch=32.
+        # (ADR-0009's bigger "net C" 256/8 + sims=64 backfired: it made one
+        # iteration too slow to finish on a single T4, so the 2026-11-03 run
+        # saved zero checkpoints in 2h12m.)
         s3_manager = S3Manager(args.s3_bucket, prefix=args.job_name)
         # Ensure the checkpoint bucket exists prior to any upload attempts
         s3_manager.ensure_bucket_exists()
         trainer = SageMakerTrainer(s3_manager, CONFIG)
+        print("=== entry point running; building trainer ===", flush=True)
         # Resume from this job's last checkpoint if the container restarted
         # (spot preemption); otherwise start from iteration 0.
         checkpoint = s3_manager.download_latest_for_prefix()
         if checkpoint:
             trainer.load_checkpoint(checkpoint)
+        else:
+            print("No checkpoint; starting from iteration 0", flush=True)
         trainer.train_gpu(args.iterations)
-        print("Training completed")
+        print("Training completed", flush=True)
     else:
         # Running as launcher
         job_name = launch_job(args, config=CONFIG)
