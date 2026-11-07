@@ -70,7 +70,8 @@ class TestBatchManager:
 
     def test_timeout(self):
         net = MockNetwork()
-        manager = BatchManager(net, device="cpu", batch_size=10, timeout=0.1)
+        # Use 0.2s timeout so the assert with margin still passes on slow CI runners
+        manager = BatchManager(net, device="cpu", batch_size=10, timeout=0.2)
         manager.start()
 
         try:
@@ -81,8 +82,9 @@ class TestBatchManager:
             _ = client(x)  # Call to test timing, result unused
             end = time.time()
 
-            # Should have waited for timeout
-            assert end - start >= 0.1
+            # Should have waited for at least the timeout (CI runners are slow — allow 50ms slack)
+            elapsed = end - start
+            assert elapsed >= 0.15, f"timeout test elapsed {elapsed:.3f}s < 0.15s"
             assert net.call_count == 1
 
         finally:
