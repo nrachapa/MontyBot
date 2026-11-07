@@ -17,13 +17,23 @@ interfaces in `core.py` (`Game`, `Network`, `SearchStrategy`, `SelfPlayStrategy`
 `TrainingStrategy`, `EvaluationStrategy`, manager interfaces) that src-training and src-infra
 program against.
 
+The `resolve_device()` helper in `config.py` resolves `'auto'` to the available hardware
+(`mps > cuda > cpu`); modules that need only the resolved device string can call it without
+pulling the full CONFIG singleton.  CONFIG remains the single source of truth for setting
+values, but constructors in src-training and src-infra now accept explicit parameters
+(`filters`, `blocks`, `simulations`, `batch`, `gen_device`, `batch_size`, `learning_rate`,
+`mixed_precision`) instead of reading from CONFIG at runtime.
+
 ## Boundary
 
 - Imports src-training (Trainer) and src-infra (S3Manager, cloud launch); `config.py` and
   `core.py` stay leaves — they must not import from `training/` or `infra/`.
 - The `Game` ABC in `core.py` stays representation-agnostic (`state: Any`); the concrete
   `Position` state object lives in src-training (`game.py`) so `core.py` never imports `chess`.
-- CLI overrides mutate the global `CONFIG` in place before delegating.
+- CLI overrides mutate the global `CONFIG` in place before delegating; `Trainer` and
+  `SageMakerTrainer` now accept the config object explicitly so the same values flow
+  through constructors (network, search, training, selfplay) instead of being read from
+  CONFIG at runtime.
 
 ## Known limitations (draft)
 
