@@ -29,6 +29,11 @@ The whole AlphaZero loop:
   unchanged.
 - **`network.py`** — `AlphaZeroNet`: ResNet, f128/b4 (candidate B, adr-0009).
 - **`training.py`** — `AlphaZeroTraining`: policy log-softmax cross-entropy + value MSE.
+- **`evaluation.py`** — `SunfishEvaluation`: material + piece-square evaluation (reads
+  `Position.board` directly, returns score from `Position.color` perspective); `ZeroEvaluation`:
+  zero-opponent evaluator. PST tables and piece values live in `evaluation_data.py`.
+- **`evaluation_data.py`** — PST tables (`pst`) and piece values (`piece_val`) for the
+  Sunfish evaluator, extracted from evaluation.py into a stable data module.
 - **`system.py`** — `Factory` composition + 250k-move `Buffer` (uniform sampling).
 - **`trainer.py`** — orchestration: generate games → buffer → train steps → checkpoint
   (`checkpoint_N.pt`, `model.pt`).
