@@ -19,7 +19,7 @@ class MontyBotConfig(BaseConfig):
 
     # Model Architecture
     filters: int = Field(default=128, gt=0)
-    blocks: int = Field(default=4, gt=0)
+    blocks: int = Field(default=10, gt=0)
     input_planes: int = Field(default=8, gt=0)
     action_size: int = Field(default=133, gt=0)
 
@@ -38,7 +38,7 @@ class MontyBotConfig(BaseConfig):
     default_instance_type: str = "ml.g4dn.xlarge"
     framework_version: str = "2.2.0"
     python_version: str = "py310"
-    max_run_seconds: int = Field(default=10800, gt=0)
+    max_run_seconds: int = Field(default=86400, gt=0)
     max_wait_seconds: int = Field(default=14400, gt=0)
     poll_seconds: int = Field(default=20, gt=0)
     job_name: str = Field(default=f"montybot-gpu-training-{utc_time}", min_length=1)
