@@ -70,7 +70,7 @@ class TestBatchManager:
 
     def test_timeout(self):
         net = MockNetwork()
-        manager = BatchManager(net, device="cpu", batch_size=10, timeout=0.05)
+        manager = BatchManager(net, device="cpu", batch_size=10, timeout=0.1)
         manager.start()
 
         try:
@@ -82,7 +82,7 @@ class TestBatchManager:
             end = time.time()
 
             # Should have waited for timeout
-            assert end - start >= 0.05
+            assert end - start >= 0.1
             assert net.call_count == 1
 
         finally:
