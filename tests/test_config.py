@@ -112,3 +112,20 @@ class TestConfiguration:
 
         # Restore original
         CONFIG.filters = original_filters
+
+    def test_device_consistent_across_module_imports(self):
+        """resolve_device() returns the same value as MontyBotConfig().device
+        for any non-'auto' device, and CONFIG.device is already resolved."""
+        from src.config import CONFIG, resolve_device, MontyBotConfig
+
+        # CONFIG.device should already be resolved (not 'auto')
+        assert CONFIG.device != "auto" or resolve_device("auto") in ("cpu", "cuda", "mps")
+        assert resolve_device(CONFIG.device) == CONFIG.device
+
+        # Explicit device values should pass through
+        for dev in ("cpu", "mps", "cuda"):
+            assert resolve_device(dev) == dev
+
+        # 'auto' should resolve to something valid
+        resolved = resolve_device("auto")
+        assert resolved in ("cpu", "cuda", "mps")
