@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..core import Network
+from ..core import Network, NetworkContext
 
 
 class ResBlock(nn.Module):
@@ -35,7 +35,13 @@ class AlphaZeroNet(Network, nn.Module):
         )
         self.head_v = nn.Sequential(nn.Conv2d(filters, 1, 1), nn.Flatten(), nn.Linear(1 * 8 * 8, 1))
 
-    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self,
+        x: torch.Tensor,
+        *,
+        context: NetworkContext | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Forward pass — context (Elo embeddings, history) ignored by ResNet."""
         z = F.relu(self.conv(x))
         z = self.blocks(z)
         logits = self.head_p(z)

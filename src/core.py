@@ -1,9 +1,27 @@
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
 import torch
 from pydantic import BaseModel, Field
+
+
+# Network Input/Output Context
+@dataclass
+class NetworkContext:
+    """Optional context for neural network inference.
+
+    Carries metadata (Elo embeddings, board history) that some
+    architectures (e.g. Chessformer) use beyond the base board tensor.
+    """
+    # Elo embeddings (for Chessformer skill conditioning)
+    elo_self: torch.Tensor | None = None
+    elo_opp: torch.Tensor | None = None
+    # Previous board states (for Chessformer attention history window)
+    board_history: torch.Tensor | None = None
+    # Legal move mask (for Chessformer from-to policy attention mask)
+    legal_mask: torch.Tensor | None = None
 
 
 # Configuration Classes
@@ -50,10 +68,38 @@ class BaseConfig(BaseModel):
 
 # Training Abstract Classes
 class Network(ABC):
-    """Policy-Value network interface (NCHW -> (policy_logits, value))."""
+    """Policy-Value network interface.
+
+    Most architectures (ResNet) accept a single board tensor and return
+    ``(policy_logits, value)``.  Some (Chessformer) can optionally consume
+    extra context like Elo embeddings and board history via
+    ``NetworkContext`` — the context parameter is optional and ignored by
+    architectures that don't use it.
+
+    The output is always ``(policy, value)`` — architectures that produce
+    additional outputs (e.g. Chessformer's ponder) discard them internally
+    to maintain backward compatibility with all 10 call sites.
+    """
 
     @abstractmethod
-    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]: ...
+    def forward(
+        self,
+        x: torch.Tensor,
+        *,
+        context: NetworkContext | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]: ...
+
+    def forward_with_context(
+        self,
+        x: torch.Tensor,
+        *,
+        context: NetworkContext | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Default implementation forwards to ``forward`` (ignores context).
+
+        Override in architectures that use extra context (Chessformer).
+        """
+        return self.forward(x)
 
 
 class SearchStrategy(ABC):

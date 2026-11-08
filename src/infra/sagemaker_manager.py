@@ -10,6 +10,8 @@ import torch
 from sagemaker import get_execution_role
 from sagemaker.pytorch import PyTorch
 
+from ..core import SageMakerManagerInterface
+
 # Ensure container paths include project root and src for imports
 _cwd = os.getcwd()
 for p in ["/opt/ml/code", "/opt/ml/code/src", _cwd, os.path.join(_cwd, "src")]:
@@ -169,7 +171,7 @@ def launch_training(instance_type: str | None = None, config=None):
     wait_for_job(job_name, poll_seconds)
 
 
-class SageMakerTrainer:
+class SageMakerTrainer(SageMakerManagerInterface):
     def __init__(self, s3_manager, config):
         from src.training.trainer import Trainer
 
@@ -258,6 +260,15 @@ class SageMakerTrainer:
 
         self.save_checkpoint(iterations)
         print("Training completed", flush=True)
+
+    # ------------------------------------------------------------------
+    # SageMakerManagerInterface methods
+
+    def launch_job(self) -> str:
+        return launch_job(config=self.config)
+
+    def wait_for_job(self, job_name: str, poll_seconds: int) -> str:
+        return wait_for_job(job_name, poll_seconds)
 
 
 def main():
