@@ -354,8 +354,8 @@ class TestSystem:
             CONFIG.blocks = original_blocks
 
     def test_config_gpu_scaling(self):
-        """Test GPU memory-based batch size scaling."""
-        from src.config import MontyBotConfig
+        """Test GPU memory-based batch size scaling via resolve_batch_size()."""
+        from src.config import resolve_batch_size
 
         with (
             patch("torch.cuda.is_available", return_value=True),
@@ -363,13 +363,19 @@ class TestSystem:
         ):
             # Test small GPU memory
             mock_props.return_value.total_memory = 4e9  # 4GB
-            config = MontyBotConfig(device="cuda")
-            assert config.batch_size == 16
+            assert resolve_batch_size("cuda") == 16
 
             # Test large GPU memory
             mock_props.return_value.total_memory = 20e9  # 20GB
-            config = MontyBotConfig(device="cuda")
-            assert config.batch_size == 64
+            assert resolve_batch_size("cuda") == 64
+
+            # Test medium GPU memory
+            mock_props.return_value.total_memory = 12e9  # 12GB
+            assert resolve_batch_size("cuda") == 32
+
+            # Test non-CUDA device returns default
+            assert resolve_batch_size("mps") == 64
+            assert resolve_batch_size("cpu") == 64
 
     def test_buffer_edge_cases(self):
         """Test buffer capacity and empty sampling."""

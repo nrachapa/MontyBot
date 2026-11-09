@@ -1,12 +1,8 @@
-from typing import TYPE_CHECKING
-
 import chess
 
-from ..core import EvaluationStrategy  # noqa: F401
-from .evaluation_data import piece_val, pst  # noqa: F401
-
-if TYPE_CHECKING:
-    from .game import Position  # noqa: F401
+from ..core import EvaluationStrategy
+from .evaluation_data import piece_val, pst
+from .game import Position  # noqa: F401  # forward-ref target for type annotations
 
 
 class SunfishEvaluation(EvaluationStrategy):
@@ -16,7 +12,7 @@ class SunfishEvaluation(EvaluationStrategy):
     — no FEN re-parse, no tuple unpacking.
     """
 
-    def evaluate(self, state: "Position") -> float:  # noqa: F821
+    def evaluate(self, state: "Position") -> float:
         board = state.board
 
         if board.is_checkmate():
@@ -63,5 +59,5 @@ class SunfishEvaluation(EvaluationStrategy):
 class ZeroEvaluation(EvaluationStrategy):
     """A zero-opponent evaluator that always returns 0."""
 
-    def evaluate(self, state: "Position") -> float:  # noqa: F821
+    def evaluate(self, state: "Position") -> float:
         return 0.0

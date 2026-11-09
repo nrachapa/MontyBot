@@ -7,8 +7,10 @@ import time
 
 import boto3
 import torch
-from sagemaker import get_execution_role
-from sagemaker.pytorch import PyTorch
+from sagemaker.core.helper.session_helper import get_execution_role
+from sagemaker.core.shapes import OutputDataConfig
+from sagemaker.core.training.configs import Compute, SourceCode, StoppingCondition
+from sagemaker.train.model_trainer import ModelTrainer
 
 # Ensure container paths include project root and src for imports
 _cwd = os.getcwd()
@@ -77,31 +79,41 @@ def launch_job(args=None, instance_type: str | None = None, config=None):
     except Exception:  # noqa: E722
         role = creds["role_arn"]
 
+    # Hardcoded PyTorch 2.14 DLC image (V3 image_uris.retrieve only supports
+    # up to 2.10; the DLC image is known from aws/deep-learning-containers).
+    region = boto3.Session().region_name or "us-east-2"
+    if torch.cuda.is_available():
+        training_image = f"763104351884.dkr.ecr.{region}.amazonaws.com/pytorch-training:2.14-cu133-amzn2023"
+    else:
+        training_image = f"763104351884.dkr.ecr.{region}.amazonaws.com/pytorch-training:2.14-cpu-amzn2023"
+
     # Use SageMaker's built-in PyTorch container (script mode)
-    estimator = PyTorch(
-        entry_point="src/infra/sagemaker_manager.py",
-        source_dir=".",
+    trainer = ModelTrainer(
+        training_image=training_image,
         role=role,
-        instance_type=instance_type,
-        instance_count=1,
-        framework_version="2.2.0",
-        py_version="py310",
-        use_spot_instances=use_spot_instances,
-        max_wait=trn["max_wait_seconds"],
-        max_run=trn["max_run_seconds"],
-        # Unbuffered python: per-iteration prints + tracebacks hit the
-        # container log stream in real time (python's block buffer otherwise
-        # swallows them on spot preemption - the 2026-11-03 run showed only the
-        # toolkit startup line and zero training output for 2 container-hours).
-        env={"PYTHONUNBUFFERED": "1"},
+        source_code=SourceCode(
+            source_dir=".",
+            entry_script="src/infra/sagemaker_manager.py",
+        ),
+        compute=Compute(
+            instance_type=instance_type,
+            instance_count=1,
+            enable_managed_spot_training=use_spot_instances,
+        ),
+        stopping_condition=StoppingCondition(
+            max_wait_time_in_seconds=trn["max_wait_seconds"],
+            max_runtime_in_seconds=trn["max_run_seconds"],
+        ),
+        output_data_config=OutputDataConfig(
+            s3_output_path=f"s3://{bucket}",
+        ),
+        environment={"PYTHONUNBUFFERED": "1"},
         hyperparameters={"iterations": iterations, "s3_bucket": bucket, "job_name": job_name},
-        output_path=f"s3://{bucket}",
-        code_location=f"s3://{bucket}",
     )
 
-    estimator.fit(job_name=job_name, wait=False)
-    print(f"Training job launched: {estimator.latest_training_job.name}")
-    return estimator.latest_training_job.name
+    job_name = trainer.fit(job_name=job_name, wait=False)
+    print(f"Training job launched: {job_name}")
+    return job_name
 
 
 def wait_for_job(job_name: str, poll_seconds: int = 30) -> str:
