@@ -231,7 +231,7 @@ class VectorizedMCTS(SearchStrategy):
         scores = puct_score(q, self.priors[f, self.actions[f]], pn, n, self.c_puct)
         if f.size >= self.batch:
             top = np.argpartition(scores, -self.batch)[-self.batch:]
-            take = {int(f[i]) for i in top}
+            take = set(int(f[i]) for i in top)
             self.frontier = [k for k in self.frontier if k not in take]
             return [int(f[i]) for i in top]
         self.frontier = []
