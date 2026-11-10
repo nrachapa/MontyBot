@@ -30,11 +30,12 @@ def worker_init(clients, num_workers: int) -> None:
 
 
 class ParallelSelfPlay(SelfPlayStrategy):
-    def __init__(self, game: Game, search: SearchStrategy, gen_device: str, batch_size: int):
+    def __init__(self, game: Game, search: SearchStrategy, gen_device: str, batch_size: int, c_discount: float):
         self.game = game
         self.search = search
         self.gen_device = gen_device
         self.batch_size = batch_size
+        self.c_discount = c_discount
 
     def generate_games(self, n_games: int) -> list[Any]:
         if os.environ.get("PYTEST_RUNNING") == "1":
@@ -95,6 +96,5 @@ class ParallelSelfPlay(SelfPlayStrategy):
         # Value target = (1-2c)v + 2c*winner*color (AlphaZero convention):
         # the discounted search value bootstraps the value head toward a
         # positional read, anchored to the actual game outcome.
-        from src.config import CONFIG
-        c = CONFIG.c_discount
+        c = self.c_discount
         return [(s, p, (1 - 2 * c) * v + 2 * c * winner * s.color) for (s, p, v) in traj]

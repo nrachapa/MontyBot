@@ -43,7 +43,7 @@ def _make(name, net):
         return SunfishSearch(game, SunfishEvaluation(), CONFIG.action_size)
     if name == "alphabeta":
         return AlphaBetaSearch(game, SunfishEvaluation(), action_size=CONFIG.action_size)
-    return ParallelSelfPlay(game, MCTS(game, net, simulations=2, action_size=CONFIG.action_size, gen_device="cpu"), gen_device="cpu", batch_size=CONFIG.batch_size)
+    return ParallelSelfPlay(game, MCTS(game, net, simulations=2, action_size=CONFIG.action_size, gen_device="cpu"), gen_device="cpu", batch_size=CONFIG.batch_size, c_discount=CONFIG.c_discount)
 
 
 @pytest.mark.parametrize("name", ["mcts", "vectorized_mcts", "sunfish", "alphabeta", "selfplay"])
@@ -58,4 +58,4 @@ def test_vectorized_pool_survives_pickle(tiny_net):
     (workers each allocate their own); the shape must come back intact."""
     obj = VectorizedMCTS(ChessGame(), tiny_net, simulations=2, batch=4, gen_device="cpu", pool=1024)
     clone = pickle.loads(pickle.dumps(obj))
-    assert clone.legal.shape == (1024, 133)
+    assert clone.pool.legal.shape == (1024, 133)

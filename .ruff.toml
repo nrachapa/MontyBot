@@ -2,7 +2,7 @@
 # Ruff is a fast Python linter written in Rust (modern alternative to Pylint/Flake8)
 
 line-length = 120
-target-version = "py310"
+target-version = "py312"
 
 [lint]
 select = [
@@ -31,6 +31,9 @@ ignore = [
     "N806",   # variable in function should be lowercase (constants are OK)
     "N812",   # lowercase imported as non-lowercase (F for functional is standard)
     "E721",   # type comparison (needed for annotation checks in tests)
+    "N818",   # GameTerminated is intentional naming (convention from chess/AlphaZero codebase)
+    "SIM108", # prefer readability over ternary in game loop
+    "C401",   # set() vs set comprehension — set() is clearer for dynamic sizes
 ]
 
 # Exclude directories

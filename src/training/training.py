@@ -14,15 +14,15 @@ class AlphaZeroTraining(TrainingStrategy):
         self.net = network.to(device).train()
         self.opt = torch.optim.Adam(self.net.parameters(), lr=learning_rate)
         self.device = device
-        # Mixed precision (ticket 09): torch 2.2 has autocast for CUDA only.
-        # MPS has no autocast device_type, no GradScaler, and fp16 BatchNorm
-        # aborts the Metal runtime — so MPS trains fp32; the bench records
-        # what that costs and informs the torch 2.5+ upgrade decision.
-        self.autocast = (
-            torch.autocast(device_type="cuda")
-            if mixed_precision and self.device.type == "cuda"
-            else contextlib.nullcontext()
-        )
+        # Mixed precision (ticket 09): autocast works on CUDA and MPS
+        # (the MPS crash was fixed in torch 2.5.0 — see ultralytics #25494).
+        if mixed_precision:
+            if self.device.type == "cuda":
+                self.autocast = torch.autocast(device_type="cuda")
+            else:
+                self.autocast = torch.autocast(device_type="mps")
+        else:
+            self.autocast = contextlib.nullcontext()
 
     def train_step(self, batch: list[Any]) -> float:
         states, policies, values = zip(*batch)

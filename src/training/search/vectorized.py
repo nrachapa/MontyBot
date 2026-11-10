@@ -3,37 +3,10 @@ from typing import Any
 import numpy as np
 import torch
 
-from ...core import Game, Network, SearchStrategy
-from ..game import MoveMapper, Position, encode_board
+from ...core import Game, SearchStrategy
+from ...training.game import MoveMapper
 from ._core import backup_value, dirichlet_perturb, puct_score
-
-
-class FlatNode:
-    """A lightweight view into a VectorizedMCTS node pool.
-
-    Implements the self-play root contract (``.children`` keyed by action
-    index, ``.visit_count``) on top of the flat pool — the node data lives
-    in the search, the view is just an index (ADR-0007).
-    """
-
-    __slots__ = ("idx", "search")
-
-    def __init__(self, idx: int, search: "VectorizedMCTS") -> None:
-        self.idx = idx
-        self.search = search
-
-    @property
-    def children(self) -> dict:
-        s = self.search
-        lo = int(s.first_child[self.idx])
-        n = int(s.n_children[self.idx])
-        if n <= 0:
-            return {}
-        return {int(s.actions[lo + j]): FlatNode(lo + j, s) for j in range(n)}
-
-    @property
-    def visit_count(self) -> int:
-        return int(self.search.visits[self.idx])
+from .pool import FlatNode, NodePool
 
 
 class VectorizedMCTS(SearchStrategy):
@@ -54,7 +27,7 @@ class VectorizedMCTS(SearchStrategy):
     def __init__(
         self,
         game: Game,
-        network: Network,
+        network: torch.nn.Module,
         simulations: int,
         batch: int,
         gen_device: str,
@@ -69,71 +42,28 @@ class VectorizedMCTS(SearchStrategy):
         self.dirichlet_alpha = 0.3
         self.dirichlet_eps = 0.25
         self.pool_cap = pool
-        # Where the (pickled) net lives / will run: the configured
-        # generation device. x.to(net_device) moves the input in either
-        # direction, so a worker whose fresh config differs still lands on
-        # the right device for the unpickled net.
-        self.net_device = torch.device(gen_device)
-        self._alloc_pool()
+        self._alloc_pool(gen_device)
         self._reset()
 
-    # ------------------------------------------------------------- pool
-
-    def _alloc_pool(self) -> None:
-        cap = self.pool_cap
-        a = MoveMapper.ACTION_SIZE
-        self.legal = np.zeros((cap, a), dtype=np.float32)
-        self.priors = np.zeros((cap, a), dtype=np.float32)
-        self.terminal = np.zeros(cap, dtype=np.int8)
-        self.winner = np.zeros(cap, dtype=np.int8)
-        self.colors = np.zeros(cap, dtype=np.int8)
-        self.parents = np.full(cap, -1, dtype=np.int64)
-        self.first_child = np.full(cap, -1, dtype=np.int64)
-        self.n_children = np.zeros(cap, dtype=np.int64)
-        self.actions = np.full(cap, -1, dtype=np.int64)
-        self.value_sum = np.zeros(cap, dtype=np.float32)
-        self.visits = np.zeros(cap, dtype=np.int64)
-        self.boards: list = [None] * cap
-        self.fens: list = [""] * cap
-        self.tensors: list = [None] * cap
+    def _alloc_pool(self, gen_device: str) -> None:
+        self.net_device = torch.device(gen_device)
+        self.pool = NodePool.allocate(self.pool_cap)
         self.size = 0
         self.frontier: list[int] = []
-
-    def _grow(self, need: int) -> None:
-        if need <= self.pool_cap:
-            return
-        cap = max(need, 2 * self.pool_cap)
-        add = cap - self.pool_cap
-        a = MoveMapper.ACTION_SIZE
-        self.legal = np.vstack([self.legal, np.zeros((add, a), dtype=np.float32)])
-        self.priors = np.vstack([self.priors, np.zeros((add, a), dtype=np.float32)])
-        self.terminal = np.concatenate([self.terminal, np.zeros(add, dtype=np.int8)])
-        self.winner = np.concatenate([self.winner, np.zeros(add, dtype=np.int8)])
-        self.colors = np.concatenate([self.colors, np.zeros(add, dtype=np.int8)])
-        self.parents = np.concatenate([self.parents, np.full(add, -1, dtype=np.int64)])
-        self.first_child = np.concatenate([self.first_child, np.full(add, -1, dtype=np.int64)])
-        self.n_children = np.concatenate([self.n_children, np.zeros(add, dtype=np.int64)])
-        self.actions = np.concatenate([self.actions, np.full(add, -1, dtype=np.int64)])
-        self.value_sum = np.concatenate([self.value_sum, np.zeros(add, dtype=np.float32)])
-        self.visits = np.concatenate([self.visits, np.zeros(add, dtype=np.int64)])
-        self.boards += [None] * add
-        self.fens += [""] * add
-        self.tensors += [None] * add
-        self.pool_cap = cap
 
     def _reset(self) -> None:
         self.size = 0
         self.frontier = []
 
     def __getstate__(self) -> dict:
-        """Strip the pool: workers allocate their own. The pool carries no
-        state a fresh game needs (the first search always starts from a
-        FEN-mismatching or absent root), so this is safe for the
-        self-play pickling path."""
+        """Strip the pool: workers allocate their own.
+
+        The pool carries no state a fresh game needs (the first search
+        always starts from a FEN-mismatching or absent root), so this is
+        safe for the self-play pickling path.
+        """
         state = self.__dict__.copy()
-        for key in ("legal", "priors", "terminal", "winner", "colors", "parents",
-                    "first_child", "n_children", "actions", "value_sum", "visits",
-                    "boards", "fens", "tensors"):
+        for key in ("pool",):
             state.pop(key, None)
         state["size"] = 0
         state["frontier"] = []
@@ -141,149 +71,131 @@ class VectorizedMCTS(SearchStrategy):
 
     def __setstate__(self, state: dict) -> None:
         self.__dict__.update(state)
-        self._alloc_pool()
+        self.pool = NodePool.allocate(self.pool_cap)
 
     # -------------------------------------------------------------- nodes
 
-    def _setup(self, k: int, color: int, fen: str, board: Any, tensor: np.ndarray) -> None:
-        self.boards[k] = board
-        self.fens[k] = fen
-        self.tensors[k] = tensor
-        self.colors[k] = color
-        self.priors[k] = 0.0
-        self.legal[k] = 0.0
-        self.value_sum[k] = 0.0
-        self.visits[k] = 0  # pool slots are reused after _reset — never trust inherited stats
-        self.first_child[k] = -1
-        self.n_children[k] = 0
-        st = Position(board, color, fen, tensor)
-        # Deferred draw (the proto's finding): claim_draw walks the whole
-        # history per node; the 150-halfmove cap gives the same winner=0.
-        if board.is_game_over(claim_draw=False) or board.halfmove_clock >= self.game.HALFMOVE_CAP:
-            self.terminal[k] = 1
-            self.winner[k] = self._winner(board)
-            self.value_sum[k] = self.winner[k] * color  # own-color perspective
-            return
-        self.winner[k] = 0
-        acts = self.game.get_legal_moves(st)
-        if acts:
-            self.legal[k, acts] = 1.0
+    def _grow(self, need: int) -> None:
+        self.pool.grow(need)
 
-    def _winner(self, board: Any) -> int:
-        if board.halfmove_clock >= 150:
-            return 0
-        r = board.result(claim_draw=False)
-        if r == "1-0":
-            return 1
-        if r == "0-1":
-            return -1
-        return 0
+    def _setup(self, k: int, color: int, state: Any) -> None:
+        self.pool.setup_node(k, color, state.board, state.tensor, self.game)
 
     def _new_root(self, state: Any, color: int) -> int:
         self._grow(self.size + 1)
         k = self.size
         self.size = k + 1
-        self.parents[k] = -1
-        self._setup(k, color, state.fen, state.board, state.tensor)
+        self.pool.parents[k] = -1
+        self._setup(k, color, state)
         return k
 
     # -------------------------------------------------------------- net
 
     def _net_root(self, k: int) -> None:
-        x = torch.from_numpy(self.tensors[k]).unsqueeze(0).to(next(self.network.parameters()).device)
+        x = torch.from_numpy(self.pool.node_tensor(k)).unsqueeze(0).to(next(self.network.parameters()).device)
         with torch.inference_mode():
             logits, _ = self.network(x)
         probs = torch.softmax(logits, dim=1).cpu().numpy()[0]
-        m = self.legal[k]
+        m = self.pool.legal[k]
         pm = probs * m
         s = pm.sum()
-        self.priors[k] = pm / s if s > 0 else m / m.sum()
+        self.pool.priors[k] = pm / s if s > 0 else m / m.sum()
 
     def _apply_dirichlet(self, k: int) -> None:
-        acts = np.nonzero(self.legal[k])[0]
+        acts = np.nonzero(self.pool.legal[k])[0]
         if acts.size == 0:
             return
         noise = np.random.dirichlet([self.dirichlet_alpha] * int(acts.size))
-        ep = np.zeros(MoveMapper.ACTION_SIZE, dtype=np.float32)
+        ep = np.zeros(self.pool.action_size, dtype=np.float32)
         ep[acts] = noise
-        new = dirichlet_perturb(self.priors[k], ep, self.dirichlet_eps)
-        if self.n_children[k] > 0:
+        new = dirichlet_perturb(self.pool.priors[k], ep, self.dirichlet_eps)
+        if self.pool.n_children_count(k) > 0:
             return  # warm root: children keep their edge priors
         for _j, a in enumerate(acts):
-            self.priors[k, int(a)] = new[int(a)]
+            self.pool.priors[k, int(a)] = new[int(a)]
 
     def _batch_net(self, batch: list[int]) -> None:
         if not batch:
             return
-        x = torch.from_numpy(np.stack([self.tensors[i] for i in batch])).to(next(self.network.parameters()).device)
+        x = torch.from_numpy(np.stack([self.pool.tensors[i] for i in batch])).to(next(self.network.parameters()).device)
         with torch.inference_mode():
             _, value = self.network(x)
         for i, v in zip(batch, value.squeeze(1).cpu().numpy()):
-            self.value_sum[i] = float(v)
+            self.pool.value_sum[i] = float(v)
 
     # ------------------------------------------------------------ loop
 
     def _pick_batch(self) -> list[int]:
         f = np.asarray(self.frontier)
-        n = self.visits[f].astype(np.float64)
-        pn = self.visits[self.parents[f]].astype(np.float64)
-        q = self.value_sum[f] / np.maximum(1.0, n)
-        scores = puct_score(q, self.priors[f, self.actions[f]], pn, n, self.c_puct)
+        n = self.pool.visits[f].astype(np.float64)
+        pn = self.pool.visits[self.pool.parents[f]].astype(np.float64)
+        q = self.pool.value_sum[f] / np.maximum(1.0, n)
+        scores = puct_score(q, self.pool.priors[f, self.pool.actions[f]], pn, n, self.c_puct)
         if f.size >= self.batch:
             top = np.argpartition(scores, -self.batch)[-self.batch:]
-            take = {int(f[i]) for i in top}
+            take = set(int(f[i]) for i in top)
             self.frontier = [k for k in self.frontier if k not in take]
             return [int(f[i]) for i in top]
         self.frontier = []
         return [int(x) for x in f]
 
     def _expand(self, k: int) -> None:
-        if self.terminal[k] or self.n_children[k] > 0:
+        if self.pool.terminal[k] or self.pool.n_children_count(k) > 0:
             return
-        acts = np.nonzero(self.legal[k])[0]
+        acts = np.nonzero(self.pool.legal[k])[0]
         if acts.size == 0:
-            self.terminal[k] = 1  # net said "go" but no move is legal
+            self.pool.terminal[k] = 1  # net said "go" but no move is legal
             return
         self._grow(self.size + int(acts.size))
         start = self.size
         self.size += int(acts.size)
-        self.first_child[k] = start
-        self.n_children[k] = int(acts.size)
+        self.pool.first_child[k] = start
+        self.pool.n_children[k] = int(acts.size)
         for j, a in enumerate(acts):
-            b = self.boards[k]
+            b = self.pool.boards[k]
             b2 = b.copy()  # child gets its OWN board at the child position
             b2.push(MoveMapper.from_index(int(a), b))
             ck = start + int(j)
-            self.parents[ck] = k
-            self.actions[ck] = int(a)
-            self._setup(ck, -int(self.colors[k]), b2.fen(), b2, encode_board(b2))
-            self.priors[ck, int(a)] = self.priors[k, int(a)]  # edge prior = parent net
-            if self.terminal[ck]:
+            self.pool.parents[ck] = k
+            self.pool.actions[ck] = int(a)
+            # Encode board for child node
+            from ..game import encode_board
+            tensor = encode_board(b2)
+            self.pool.legal[ck] = 0.0  # filled by setup_node
+            self.pool.visits[ck] = 0
+            self.pool.value_sum[ck] = 0.0
+            self.pool.priors[ck] = 0.0
+            self.pool.first_child[ck] = -1
+            self.pool.n_children[ck] = 0
+            self.pool.setup_node(ck, -int(self.pool.colors[k]), b2, tensor, self.game)
+            # Edge prior = parent net prior (for subtree reuse)
+            self.pool.priors[ck, int(a)] = self.pool.priors[k, int(a)]
+            if self.pool.terminal[ck]:
                 self._backup_path(ck)  # terminal outcome propagates now
             else:
                 self.frontier.append(ck)
 
     def _backup_path(self, leaf: int) -> None:
-        v = self.value_sum[leaf] / max(1, int(self.visits[leaf]))
-        leaf_color = self.colors[leaf]
+        v = self.pool.value_sum[leaf] / max(1, int(self.pool.visits[leaf]))
+        leaf_color = self.pool.colors[leaf]
         k = leaf
         while k >= 0:
-            self.visits[k] += 1
-            self.value_sum[k] += backup_value(self.colors[k], leaf_color, v)
-            k = self.parents[k]
+            self.pool.visits[k] += 1
+            self.pool.value_sum[k] += backup_value(self.pool.colors[k], leaf_color, v)
+            k = self.pool.parents[k]
 
     def search(self, state: Any, root: FlatNode | None = None) -> tuple[np.ndarray, Any, float]:
         root_idx = root.idx if isinstance(root, FlatNode) else None
-        if root_idx is None or self.fens[root_idx] != state.fen:
+        if root_idx is None or self.pool.fens[root_idx] != state.fen:
             self._reset()
             root_idx = self._new_root(state, state.color)
-            root = FlatNode(root_idx, self)
-        if self.terminal[root_idx]:
-            return (np.zeros(MoveMapper.ACTION_SIZE, dtype=np.float32), root,
-                    float(self.winner[root_idx]) * int(state.color))
+            root = FlatNode(root_idx, self.pool)
+        if self.pool.terminal[root_idx]:
+            return (np.zeros(self.pool.action_size, dtype=np.float32), root,
+                    float(self.pool.winner[root_idx]) * int(state.color))
         self._net_root(root_idx)
         self._apply_dirichlet(root_idx)
-        if self.n_children[root_idx] == 0:
+        if self.pool.n_children_count(root_idx) == 0:
             self._expand(root_idx)
         for _ in range(max(1, (self.simulations + self.batch - 1) // self.batch)):
             if not self.frontier:
@@ -293,10 +205,10 @@ class VectorizedMCTS(SearchStrategy):
             for k in batch:
                 self._backup_path(k)
                 self._expand(k)
-        lo = int(self.first_child[root_idx])
-        kids = np.arange(lo, lo + int(self.n_children[root_idx]))
-        pol64 = np.bincount(self.actions[kids], weights=self.visits[kids].astype(np.float64),
-                            minlength=MoveMapper.ACTION_SIZE)
+        lo = int(self.pool.first_child[root_idx])
+        kids = np.arange(lo, lo + int(self.pool.n_children[root_idx]))
+        pol64 = np.bincount(self.pool.actions[kids], weights=self.pool.visits[kids].astype(np.float64),
+                            minlength=self.pool.action_size)
         t = pol64.sum()
         if t > 0:
             policy = (pol64 / t).astype(np.float32)
@@ -311,15 +223,15 @@ class VectorizedMCTS(SearchStrategy):
                 for k in batch:
                     self._backup_path(k)
                     self._expand(k)
-                lo = int(self.first_child[root_idx])
-                kids = np.arange(lo, lo + int(self.n_children[root_idx]))
-                pol64 = np.bincount(self.actions[kids], weights=self.visits[kids].astype(np.float64),
-                                    minlength=MoveMapper.ACTION_SIZE)
+                lo = int(self.pool.first_child[root_idx])
+                kids = np.arange(lo, lo + int(self.pool.n_children[root_idx]))
+                pol64 = np.bincount(self.pool.actions[kids], weights=self.pool.visits[kids].astype(np.float64),
+                                    minlength=self.pool.action_size)
                 t = pol64.sum()
             if t > 0:
                 policy = (pol64 / t).astype(np.float32)
             else:
-                ls = self.legal[root_idx].sum()
-                policy = (self.legal[root_idx] / ls if ls > 0 else self.legal[root_idx]).astype(np.float32)
-        value = float(self.value_sum[root_idx] / max(1, int(self.visits[root_idx])))
+                ls = self.pool.legal[root_idx].sum()
+                policy = (self.pool.legal[root_idx] / ls if ls > 0 else self.pool.legal[root_idx]).astype(np.float32)
+        value = float(self.pool.value_sum[root_idx] / max(1, int(self.pool.visits[root_idx])))
         return policy, root, value

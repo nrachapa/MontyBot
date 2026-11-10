@@ -2,8 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..core import Network, NetworkContext
-
+from ..core import NetworkContext
 
 class ResBlock(nn.Module):
     def __init__(self, c: int):
@@ -19,7 +18,7 @@ class ResBlock(nn.Module):
         return F.relu(x + y)
 
 
-class AlphaZeroNet(Network, nn.Module):
+class AlphaZeroNet(nn.Module):
     def __init__(
         self,
         filters: int = 128,

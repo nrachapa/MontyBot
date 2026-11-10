@@ -7,19 +7,24 @@ name = "montybot"
 version = "0.1.0"
 description = "AlphaZero-style chess engine with MCTS and neural networks"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 authors = [
     {name = "MontyBot Team"}
 ]
 dependencies = [
-    # Pins tightened from the old requirements.txt (py3.10 / SageMaker constraints).
-    "torch>=2.2,<2.3",
-    "numpy>=1.24,<2.0",
+    # PyTorch 2.14+ with Python 3.12+ (3.10 wheels dropped in 2.15).
+    # SageMaker DLC 2.14 bundles PyTorch 2.14 + Python 3.12 + CUDA 13.3.
+    # SageMaker v3: modular package with ModelTrainer replacing PyTorch estimator.
+    "torch>=2.14,<2.16",
+    "numpy>=2.0",
     "chess>=1.9",
     "click>=8.0.0",
     "pydantic>=2.0.0",
     "boto3>=1.26.0",
-    "sagemaker>=2.190,<3.0",
+    "sagemaker>=3.0",
+    # deepdiff 9.x requires cachebox (PyO3) which doesn't build on Python 3.15.
+    # Pin <9 to avoid the native dep — sagemaker-serve is only used for serving.
+    "deepdiff>=6,<9",
 ]
 
 [dependency-groups]
@@ -34,7 +39,7 @@ dev = [
 [tool.ruff]
 # Ruff is a fast Python linter (Pyrefly alternative)
 line-length = 120
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = [
@@ -52,6 +57,9 @@ ignore = [
     "E501",  # line too long (handled by formatter)
     "B008",  # do not perform function calls in argument defaults
     "B905",  # zip without explicit strict parameter
+    "N818",  # GameTerminated is intentional naming (convention from chess/AlphaZero codebase)
+    "SIM108", # prefer readability over ternary in game loop
+    "C401",  # set() vs set comprehension — set() is clearer for dynamic sizes
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -78,7 +86,7 @@ skip_covered = false
 fail_under = 95
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false

@@ -1,13 +1,13 @@
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import torch
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, field_validator
 
 from .core import BaseConfig
 
 # time should be in this format: 2025-11-23-16-38-58-988 in UTC
-utc_time = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H-%M-%S-%f")[:-3]
+utc_time = datetime.now(UTC).strftime("%Y-%m-%d-%H-%M-%S-%f")[:-3]
 
 # Single AWS-region knob (read once at import, like the credential env vars
 # below); the S3 bucket name derives from it (`montybot-training-{region}`).
@@ -18,8 +18,8 @@ class MontyBotConfig(BaseConfig):
     """Production configuration"""
 
     # Model Architecture
-    filters: int = Field(default=128, gt=0)
-    blocks: int = Field(default=10, gt=0)
+    filters: int = Field(default=256, gt=0)
+    blocks: int = Field(default=20, gt=0)
     input_planes: int = Field(default=8, gt=0)
     action_size: int = Field(default=133, gt=0)
 
@@ -36,10 +36,10 @@ class MontyBotConfig(BaseConfig):
 
     # Infrastructure/SageMaker
     default_instance_type: str = "ml.g4dn.xlarge"
-    framework_version: str = "2.2.0"
-    python_version: str = "py310"
-    max_run_seconds: int = Field(default=86400, gt=0)
-    max_wait_seconds: int = Field(default=172800, gt=0)
+    framework_version: str = "2.14"
+    python_version: str = "py312"
+    max_run_seconds: int = Field(default=10800, gt=0)
+    max_wait_seconds: int = Field(default=14400, gt=0)
     poll_seconds: int = Field(default=20, gt=0)
     job_name: str = Field(default=f"montybot-gpu-training-{utc_time}", min_length=1)
     spot_instances: bool = True
@@ -77,27 +77,28 @@ class MontyBotConfig(BaseConfig):
             return "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
         return v
 
-    @model_validator(mode="after")
-    def _model_post_init(self):
-        """Handle GPU scaling after validation."""
-        if self.device == "cuda" and torch.cuda.is_available():
-            gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1e9
-            if gpu_memory < 8:
-                object.__setattr__(self, "batch_size", 16)
-            elif gpu_memory > 16:
-                object.__setattr__(self, "batch_size", 64)
-        return self
-
 
 def resolve_device(v: str) -> str:
     """Resolve an 'auto' device string to the available hardware.
 
-    Reads 'auto' literally; anything else is returned unchanged.  Used by
-    modules that need the resolved device without pulling the full CONFIG.
+  Reads 'auto' literally; anything else is returned unchanged.  Used by
+  modules that need the resolved device without pulling the full CONFIG.
     """
     if v == "auto":
         return "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
     return v
+
+
+def resolve_batch_size(device: str) -> int:
+    """Scale batch size based on GPU memory (only relevant for CUDA)."""
+    if device != "cuda" or not torch.cuda.is_available():
+        return 64  # default from config
+    gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1e9
+    if gpu_memory < 8:
+        return 16
+    if gpu_memory > 16:
+        return 64
+    return 32  # medium GPUs
 
 
 # Global configuration instance
