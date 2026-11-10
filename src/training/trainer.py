@@ -4,7 +4,11 @@ import numpy as np
 import torch
 
 from ..config import CONFIG
-from .system import Buffer, Factory
+from .game import ChessGame
+from .network import AlphaZeroNet
+from .search import ParallelSelfPlay, VectorizedMCTS
+from .system import Buffer
+from .training import AlphaZeroTraining
 
 
 class Trainer:
@@ -13,11 +17,27 @@ class Trainer:
             config = CONFIG
         self.config = config
         self.device = torch.device(config.device)
-        self.network = Factory.create_network("alphazero", config)
-        self.game = Factory.create_game("chess")
-        self.search = Factory.create_search("vectorized_mcts", self.game, network=self.network, config=config)
-        self.selfplay = Factory.create_selfplay("parallel", self.game, self.search)
-        self.training = Factory.create_training("alphazero", self.network, self.device)
+        self.network = AlphaZeroNet(
+            filters=config.filters,
+            blocks=config.blocks,
+            input_planes=config.input_planes,
+            action_size=config.action_size,
+        )
+        self.game = ChessGame()
+        self.search = VectorizedMCTS(
+            self.game,
+            self.network,
+            simulations=config.simulations,
+            batch=config.net_eval_batch,
+            gen_device=config.gen_device,
+        )
+        self.selfplay = ParallelSelfPlay(
+            self.game, self.search, config.gen_device, config.batch_size, config.c_discount
+        )
+        self.training = AlphaZeroTraining(
+            self.network, self.device,
+            config.learning_rate, config.mixed_precision
+        )
         self.buffer = Buffer()
 
     def train_iteration(self, iteration: int) -> dict[str, Any]:

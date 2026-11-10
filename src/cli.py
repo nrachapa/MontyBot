@@ -12,8 +12,8 @@ from src.config import CONFIG, resolve_device
 from src.infra.s3_manager import S3Manager
 from src.training.evaluation import SunfishEvaluation
 from src.training.game import ChessGame, MoveMapper, Position, encode_board, play_game
+from src.training.network import AlphaZeroNet
 from src.training.search import AlphaBetaSearch
-from src.training.system import Factory
 
 _HEURISTIC_SEARCH = None  # lazy: the system import pulls the full training graph
 
@@ -143,7 +143,12 @@ def _evaluate_impl(is_local=False, opponent: str = "random"):
         CONFIG.filters = saved_config.get("filters", CONFIG.filters)
         CONFIG.blocks = saved_config.get("blocks", CONFIG.blocks)
 
-    network = Factory.create_network("alphazero", CONFIG)
+    network = AlphaZeroNet(
+        filters=CONFIG.filters,
+        blocks=CONFIG.blocks,
+        input_planes=CONFIG.input_planes,
+        action_size=CONFIG.action_size,
+    )
     network.load_state_dict(checkpoint["model_state"])
     device = torch.device(resolve_device(CONFIG.device))
     # Move the model to the same device as the input tensors below (which are

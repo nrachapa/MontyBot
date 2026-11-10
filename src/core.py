@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 import numpy as np
-import torch
 from pydantic import BaseModel, Field
 
 
@@ -49,13 +48,6 @@ class BaseConfig(BaseModel):
 
 
 # Training Abstract Classes
-class Network(ABC):
-    """Policy-Value network interface (NCHW -> (policy_logits, value))."""
-
-    @abstractmethod
-    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]: ...
-
-
 class SearchStrategy(ABC):
     """Game search policy.
 

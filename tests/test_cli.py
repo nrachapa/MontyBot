@@ -155,9 +155,8 @@ class TestCLIIntegration:
     """Integration tests with actual components"""
 
     @patch("src.cli.S3Manager")
-    @patch("src.cli.Factory.create_network")
     @patch("os.path.exists", return_value=False)
-    def test_evaluate_no_model(self, mock_exists, mock_factory, mock_s3_manager):
+    def test_evaluate_no_model(self, mock_exists, mock_s3_manager):
         """Test evaluate when no model exists"""
         runner = CliRunner()
 
@@ -216,10 +215,10 @@ class TestCLIIntegration:
         mock_evaluate_impl.assert_called_once()
 
     @patch("src.cli.S3Manager")
-    @patch("src.cli.Factory.create_network")
+    @patch("src.cli.AlphaZeroNet")
     @patch("os.path.exists", return_value=True)
     @patch("torch.load")
-    def test_evaluate_local_model_exists(self, mock_load, mock_exists, mock_factory, mock_s3_manager):
+    def test_evaluate_local_model_exists(self, mock_load, mock_exists, mock_alpha_zero_net, mock_s3_manager):
         """Test evaluate when local model exists"""
         runner = CliRunner()
 
@@ -229,7 +228,7 @@ class TestCLIIntegration:
         # Mock network
         mock_network = Mock()
         mock_network.eval.return_value = mock_network
-        mock_factory.return_value = mock_network
+        mock_alpha_zero_net.return_value = mock_network
 
         # Mock S3Manager (should not be called for download)
         mock_s3_instance = Mock()
@@ -253,12 +252,12 @@ class TestEvaluateImpl:
 
     @patch("os.path.exists", return_value=False)
     @patch("src.cli.S3Manager")
-    @patch("src.cli.Factory.create_network")
+    @patch("src.cli.AlphaZeroNet")
     @patch("src.cli.play_game")
     def test_evaluate_impl_with_model(
         self,
         mock_play,
-        mock_factory,
+        mock_alpha_zero_net,
         mock_s3_manager,
         mock_exists,
     ):
@@ -274,12 +273,12 @@ class TestEvaluateImpl:
         mock_play.return_value = ([], 0)  # play_game returns (traj, winner)
         mock_exists.return_value = False  # os.path.exists returns False
 
-        # mock_factory = 2nd decorator = "src.cli.Factory.create_network"
+        # mock_alpha_zero_net = 2nd decorator = "src.training.network.AlphaZeroNet"
         mock_network = Mock()
         mock_network.eval.return_value = mock_network
         mock_network.load_state_dict = Mock()
         mock_network.return_value = (Mock(), Mock())
-        mock_factory.return_value = mock_network
+        mock_alpha_zero_net.return_value = mock_network
 
         # mock_s3_manager = 3rd decorator = "src.cli.S3Manager"
         mock_s3_instance = Mock()
@@ -296,7 +295,7 @@ class TestEvaluateImpl:
             _evaluate_impl()
             # Should complete without error
             mock_s3_manager.assert_called_once()
-            mock_factory.assert_called_once()
+            mock_alpha_zero_net.assert_called_once()
             # play_game was called once (for 1 game)
             mock_play.assert_called_once()
         finally:
@@ -305,7 +304,7 @@ class TestEvaluateImpl:
 
     @patch("os.path.exists", return_value=False)
     @patch("src.cli.S3Manager")
-    @patch("src.cli.Factory.create_network")
+    @patch("src.cli.AlphaZeroNet")
     @patch("torch.device")
     @patch("torch.cuda.is_available", return_value=True)
     @patch("src.cli.play_game")
@@ -314,7 +313,7 @@ class TestEvaluateImpl:
         mock_play,
         mock_cuda,
         mock_device,
-        mock_factory,
+        mock_alpha_zero_net,
         mock_s3_manager,
         mock_exists,
     ):
@@ -334,10 +333,10 @@ class TestEvaluateImpl:
         mock_s3_instance.download_checkpoint.return_value = {"model_state": {}}
         mock_s3_manager.return_value = mock_s3_instance
 
-        # mock_factory = "src.cli.Factory.create_network"
+        # mock_alpha_zero_net = "src.training.network.AlphaZeroNet"
         mock_network = MagicMock()
         mock_network.eval.return_value = mock_network
-        mock_factory.return_value = mock_network
+        mock_alpha_zero_net.return_value = mock_network
         mock_network.return_value = (MagicMock(), MagicMock())
 
         # mock_device / mock_cuda = torch mocks

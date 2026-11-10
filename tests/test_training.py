@@ -5,19 +5,17 @@ import numpy as np
 import pytest
 import torch
 
-from src.core import Game, Network, SearchStrategy, SelfPlayStrategy, TrainingStrategy
+from src.core import Game, SearchStrategy, SelfPlayStrategy, TrainingStrategy
 from src.training.game import ChessGame, MoveMapper, Position, encode_board
 from src.training.network import AlphaZeroNet
 from src.training.search import MCTS, Node, ParallelSelfPlay, VectorizedMCTS
-from src.training.system import Buffer, Factory
+from src.training.system import Buffer
 from src.training.trainer import Trainer
 from src.training.training import AlphaZeroTraining
 
 
 class TestAbstractions:
     def test_abstracts(self):
-        with pytest.raises(TypeError):
-            Network()
         with pytest.raises(TypeError):
             SearchStrategy()
         with pytest.raises(TypeError):
@@ -116,7 +114,7 @@ class TestImplementations:
         # All-zero policy: exercises the game-loop exit (a real MCTS policy is
         # zero off the legal actions, so from_index must never see illegal ones).
         search.search.return_value = (np.zeros(CONFIG.action_size, dtype=np.float32), None, 0.0)
-        sp = ParallelSelfPlay(game, search, gen_device="cpu", batch_size=CONFIG.batch_size)
+        sp = ParallelSelfPlay(game, search, gen_device="cpu", batch_size=CONFIG.batch_size, c_discount=CONFIG.c_discount)
         trajs = sp.generate_games(1)
         assert isinstance(trajs, list) and len(trajs) == 1
 
@@ -143,7 +141,7 @@ class TestImplementations:
 
         search = Mock()
         search.search.side_effect = fake_search
-        sp = ParallelSelfPlay(game, search, gen_device="cpu", batch_size=CONFIG.batch_size)
+        sp = ParallelSelfPlay(game, search, gen_device="cpu", batch_size=CONFIG.batch_size, c_discount=CONFIG.c_discount)
 
         trajs = sp.generate_games(1)
         traj = trajs[0]
@@ -170,7 +168,7 @@ class TestImplementations:
 
         wrapper = Mock()
         wrapper.search.side_effect = spy
-        sp = ParallelSelfPlay(game, wrapper, gen_device="cpu", batch_size=CONFIG.batch_size)
+        sp = ParallelSelfPlay(game, wrapper, gen_device="cpu", batch_size=CONFIG.batch_size, c_discount=CONFIG.c_discount)
         trajs = sp.generate_games(1)
         assert len(trajs[0]) >= 2  # game lasted > 1 ply
         # First move: fresh root. Every subsequent move: the previous child.
@@ -226,7 +224,7 @@ class TestImplementations:
         game = ChessGame()
         search = Mock()
         search.search.return_value = (np.ones(CONFIG.action_size) / CONFIG.action_size, None)
-        sp = ParallelSelfPlay(game, search, gen_device="cpu", batch_size=CONFIG.batch_size)
+        sp = ParallelSelfPlay(game, search, gen_device="cpu", batch_size=CONFIG.batch_size, c_discount=CONFIG.c_discount)
         with patch.dict("os.environ", {}, clear=True):
             trajs = sp.generate_games(1)
         assert isinstance(trajs, list) and len(trajs) == 1
@@ -239,7 +237,7 @@ class TestImplementations:
         game = ChessGame()
         search = Mock()
         search.search.return_value = (np.zeros(CONFIG.action_size, dtype=np.float32), None, 0.0)
-        sp = ParallelSelfPlay(game, search, gen_device="cpu", batch_size=CONFIG.batch_size)
+        sp = ParallelSelfPlay(game, search, gen_device="cpu", batch_size=CONFIG.batch_size, c_discount=CONFIG.c_discount)
         # Call private method directly to hit the break branch at line 169
         res = sp._play_game(0)
         assert res == []
@@ -308,7 +306,7 @@ class TestImplementations:
         network = Mock()
         network.return_value = (torch.randn(1, CONFIG.action_size), torch.randn(1, 1))
         search = MCTS(game, network, simulations=10, action_size=CONFIG.action_size, gen_device="cpu")
-        selfplay = ParallelSelfPlay(game, search, gen_device="cpu", batch_size=CONFIG.batch_size)
+        selfplay = ParallelSelfPlay(game, search, gen_device="cpu", batch_size=CONFIG.batch_size, c_discount=CONFIG.c_discount)
 
         # Should run synchronously in main process
         games = selfplay.generate_games(1)
@@ -330,7 +328,7 @@ class TestSystem:
 
         assert CONFIG.input_planes == 8 and CONFIG.action_size == MoveMapper.ACTION_SIZE
 
-    def test_factory_and_buffer(self):
+    def test_network_and_buffer(self):
         from src.config import CONFIG
 
         original_filters = CONFIG.filters
@@ -339,8 +337,13 @@ class TestSystem:
         CONFIG.blocks = 1
 
         try:
-            net = Factory.create_network("alphazero")
-            game = Factory.create_game("chess")
+            net = AlphaZeroNet(
+                filters=CONFIG.filters,
+                blocks=CONFIG.blocks,
+                input_planes=CONFIG.input_planes,
+                action_size=CONFIG.action_size,
+            )
+            game = ChessGame()
             assert isinstance(net, AlphaZeroNet) and isinstance(game, ChessGame)
             buf = Buffer(capacity=4)
             buf.add_batch(
@@ -395,9 +398,11 @@ class TestSystem:
         sample = buf.sample(1)
         assert len(sample) == 1
 
-    def test_factory_coverage(self):
-        """Test all factory creation methods."""
+    def test_component_creation(self):
+        """Test direct instantiation of all components."""
         from src.config import CONFIG
+        from src.training.search import MCTS
+        from src.training.training import AlphaZeroTraining
 
         original_filters = CONFIG.filters
         original_blocks = CONFIG.blocks
@@ -405,12 +410,17 @@ class TestSystem:
         CONFIG.blocks = 1
 
         try:
-            # Test all factory methods
-            net = Factory.create_network("alphazero")
-            game = Factory.create_game("chess")
-            search = Factory.create_search("mcts", game)
-            selfplay = Factory.create_selfplay("parallel", game, search)
-            training = Factory.create_training("alphazero", net, torch.device("cpu"))
+            # Test all component direct construction
+            net = AlphaZeroNet(
+                filters=CONFIG.filters,
+                blocks=CONFIG.blocks,
+                input_planes=CONFIG.input_planes,
+                action_size=CONFIG.action_size,
+            )
+            game = ChessGame()
+            search = MCTS(game, net, simulations=CONFIG.simulations, action_size=CONFIG.action_size, gen_device="cpu")
+            selfplay = ParallelSelfPlay(game, search, "cpu", CONFIG.batch_size, CONFIG.c_discount)
+            training = AlphaZeroTraining(net, torch.device("cpu"), CONFIG.learning_rate, CONFIG.mixed_precision)
 
             # Verify types
             assert net is not None
@@ -523,10 +533,10 @@ class TestTrainer:
 
 
 class TestExtensibility:
-    def test_register_custom_network(self):
+    def test_custom_network(self):
         from src.config import CONFIG
 
-        class CustomNet(Network, torch.nn.Module):
+        class CustomNet(torch.nn.Module):
             def __init__(self, filters=128, blocks=4, input_planes=8, action_size=133):
                 super().__init__()
                 self.l = torch.nn.Linear(input_planes * 8 * 8, action_size)
@@ -535,8 +545,12 @@ class TestExtensibility:
                 z = x.view(x.size(0), -1)
                 return self.l(z), torch.tanh(torch.ones((x.size(0), 1)))
 
-        Factory._networks["custom"] = CustomNet
-        net = Factory.create_network("custom", CONFIG)
+        net = CustomNet(
+            filters=CONFIG.filters,
+            blocks=CONFIG.blocks,
+            input_planes=CONFIG.input_planes,
+            action_size=CONFIG.action_size,
+        )
         x = torch.randn(1, CONFIG.input_planes, 8, 8)
         logits, v = net(x)
         assert logits.shape == (1, CONFIG.action_size) and v.shape == (1, 1)
@@ -628,7 +642,7 @@ class TestVectorizedMCTS:
 
         game = ChessGame()
         search = VectorizedMCTS(game, vnet, simulations=10, batch=32, gen_device="cpu")
-        sp = ParallelSelfPlay(game, search, gen_device="cpu", batch_size=CONFIG.batch_size)
+        sp = ParallelSelfPlay(game, search, gen_device="cpu", batch_size=CONFIG.batch_size, c_discount=CONFIG.c_discount)
         trajs = sp.generate_games(1)
         assert len(trajs) == 1
         traj = trajs[0]

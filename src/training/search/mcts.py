@@ -2,7 +2,7 @@
 
 Superseded for self-play by ``VectorizedMCTS`` (ADR-0007): this tree-of-``Node``
 search makes one network call per leaf, which the ADR measured ~10x worse than
-the vectorized flat pool. Still a valid search — the Factory's ``"mcts"`` name
+the vectorized flat pool. Still a valid search — the ``"mcts"`` name
 and the tests use it — but new search work belongs in ``vectorized.py`` or the
 shared ``_core`` (the PUCT / Dirichlet / backup math both MCTS share).
 """

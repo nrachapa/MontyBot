@@ -8,7 +8,6 @@ from src.config import CONFIG
 from src.training.game import ChessGame
 from src.training.network import AlphaZeroNet
 from src.training.search import MCTS, ParallelSelfPlay
-from src.training.system import Factory
 
 
 def test_parallel_selfplay_integration():
@@ -35,7 +34,7 @@ def test_parallel_selfplay_integration():
         # Net is pickleable. Game is pickleable.
 
         search = MCTS(game, net, simulations=2, action_size=CONFIG.action_size, gen_device="cpu")
-        sp = ParallelSelfPlay(game, search, gen_device="cpu", batch_size=CONFIG.batch_size)
+        sp = ParallelSelfPlay(game, search, gen_device="cpu", batch_size=CONFIG.batch_size, c_discount=CONFIG.c_discount)
 
         # Run generation
         # We use a small number of games
