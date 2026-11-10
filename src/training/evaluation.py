@@ -1,6 +1,6 @@
 import chess
 
-from ..core import EvaluationStrategy
+from src.core import EvaluationStrategy
 from .evaluation_data import piece_val, pst
 from .game import Position  # noqa: F401  # forward-ref target for type annotations
 

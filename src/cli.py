@@ -58,11 +58,12 @@ def cli(verbose):
 @click.option("--filters", type=int, help="Model filters")
 @click.option("--blocks", type=int, help="Model blocks")
 @click.option("--batch-size", type=int, help="Batch size")
+@click.option("--max-run", type=int, help="Max run seconds (overrides config default)")
 @click.option("--cloud/--local", default=False, help="Cloud vs local training")
 @click.option("--instance-type", default=None, help="SageMaker instance type (overrides config default)")
 @click.option("--on-demand", is_flag=True, help="Use on-demand instances (config default is spot)")
 @click.option("--region", default=None, help="AWS region (defaults to $AWS_DEFAULT_REGION or us-east-2)")
-def train(iterations, filters, blocks, batch_size, cloud, instance_type, on_demand, region):
+def train(iterations, filters, blocks, batch_size, max_run, cloud, instance_type, on_demand, region):
     """Launch model training"""
     # --region is the single AWS knob: steer the AWS SDK/boto3 (env) and the
     # S3 bucket name (config) to the same region.
@@ -81,6 +82,8 @@ def train(iterations, filters, blocks, batch_size, cloud, instance_type, on_dema
         CONFIG.batch_size = batch_size
     if on_demand:
         CONFIG.spot_instances = False
+    if max_run:
+        CONFIG.max_run_seconds = max_run
 
     if cloud:
         click.echo("🚀 Launching cloud training...")

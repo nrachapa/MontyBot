@@ -1,7 +1,7 @@
 import chess
 import numpy as np
 
-from ..core import Game
+from src.core import Game
 
 # --- 8-plane representation (ADR-0006) ---
 _PIECE_PLANE = {

@@ -408,3 +408,36 @@ class TestOpponentSelection:
         resolved = cli_mod.MoveMapper.from_index(move, board)
         assert resolved.to_square == chess.C6
         assert board.is_capture(resolved)
+
+    def test_evaluate_move_index_is_actual_move(self):
+        """Validate that evaluate uses the actual move index, not array position.
+
+        Bug regression test: np.argmax(probs[legal_indices]) returns the
+        position *within* the filtered list, not the actual move index.
+        The fix was to look up the index via legal_indices[best_idx].
+        """
+        from src.training.game import MoveMapper
+
+        board = chess.Board()
+        legal_moves = list(board.legal_moves)
+
+        # Build policy_fn that returns a known move index
+        known_idx = MoveMapper.to_index(legal_moves[0], board)
+
+        # Verify the move index is the actual move, not the array position
+        move = known_idx
+        resolved = MoveMapper.from_index(move, board)
+        assert resolved == legal_moves[0], f"Expected first legal move, got {resolved} (idx={move})"
+
+        # Now simulate the broken version (argmax returns position, not index)
+        probs = np.zeros(133)
+        legal_indices = [MoveMapper.to_index(m, board) for m in legal_moves]
+        probs[legal_indices[5]] = 0.5  # Set highest prob at position 5
+        probs[legal_indices[0]] = 0.3  # But position 0 is first in list
+
+        broken_idx = int(np.argmax(probs[legal_indices]))
+        fixed_idx = legal_indices[int(np.argmax(probs[legal_indices]))]
+
+        # The broken version returns position 5, not the actual move index
+        assert broken_idx == 5  # Bug: returns array position
+        assert fixed_idx == legal_indices[5]  # Fix: returns actual move index

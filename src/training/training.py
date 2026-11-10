@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from ..core import TrainingStrategy
+from src.core import TrainingStrategy
 from .network import AlphaZeroNet
 
 

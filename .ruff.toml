@@ -36,6 +36,36 @@ ignore = [
     "C401",   # set() vs set comprehension — set() is clearer for dynamic sizes
 ]
 
+# Enforce absolute imports: no relative imports with "from .." (they break in
+# SageMaker container where the package root is /opt/ml/code).
+
+[lint.per-file-ignores]
+"tests/*" = [
+    "F401",  # Allow unused imports in tests
+    "F811",  # Allow redefinition in tests
+    "ARG",   # Allow unused arguments in test fixtures
+]
+"__init__.py" = [
+    "F401",  # Allow unused imports in __init__
+]
+"src/infra/sagemaker_manager.py" = [
+    "ARG001", # Allow unused args in SageMaker entry points
+]
+
+# Note: use absolute imports (from src.X) everywhere. This works in both
+# local dev (sys.path contains project root) and container (/opt/ml/code).
+# The old relative imports (from ..core) were a bug introduced in the merge.
+
+[lint.isort]
+known-first-party = ["src"]
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+
+[format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+skip-magic-trailing-comma = false
+
 # Exclude directories
 exclude = [
     ".git",

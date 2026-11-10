@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..core import NetworkContext
+from src.core import NetworkContext
 
 class ResBlock(nn.Module):
     def __init__(self, c: int):

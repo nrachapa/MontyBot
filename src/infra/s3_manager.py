@@ -3,7 +3,7 @@ import os
 import boto3
 import torch
 
-from ..core import S3ManagerInterface
+from src.core import S3ManagerInterface
 
 
 class S3Manager(S3ManagerInterface):

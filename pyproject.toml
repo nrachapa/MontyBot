@@ -91,3 +91,19 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short --disable-warnings --maxfail=5"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::SyntaxWarning:sagemaker_core.main.shapes",
+    "ignore::SyntaxWarning:smdebug_rulesconfig.actions.utils",
+]
+pythonpath = ["src"]

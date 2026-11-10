@@ -1,5 +1,5 @@
 import os
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import torch
 from pydantic import Field, field_validator
@@ -7,10 +7,8 @@ from pydantic import Field, field_validator
 from .core import BaseConfig
 
 # time should be in this format: 2025-11-23-16-38-58-988 in UTC
-utc_time = datetime.now(UTC).strftime("%Y-%m-%d-%H-%M-%S-%f")[:-3]
+utc_time = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H-%M-%S-%f")[:-3]
 
-# Single AWS-region knob (read once at import, like the credential env vars
-# below); the S3 bucket name derives from it (`montybot-training-{region}`).
 DEFAULT_REGION = os.environ.get("AWS_DEFAULT_REGION", "us-east-2")
 
 
@@ -45,8 +43,6 @@ class MontyBotConfig(BaseConfig):
     spot_instances: bool = True
 
     # AWS Resources
-    # Region is the single AWS-region knob (from the environment); the S3
-    # bucket name derives from it (`montybot-training-{region}`).
     region: str = Field(default=DEFAULT_REGION, min_length=1)
     # No hardcoded credentials (ADR-0004 local-first): read from the
     # environment. None = unset -> SageMaker falls back to its default
