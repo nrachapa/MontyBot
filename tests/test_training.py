@@ -638,3 +638,89 @@ class TestVectorizedMCTS:
         assert -1.0 <= v0 <= 1.0 and -1.0 <= v1 <= 1.0
         legal = set(game.get_legal_moves(s0))
         assert p0[[i for i in range(CONFIG.action_size) if i not in legal]].sum() == 0.0
+
+
+class TestProgressiveModelTransition:
+    """Test progressive model transition logic (paper Sec. 9.1)."""
+
+    def test_initial_config(self):
+        """Test initial model configuration."""
+        from src.config import CONFIG
+        original = CONFIG.model_dump()
+        CONFIG.filters = 128
+        CONFIG.blocks = 10
+        CONFIG.initial_filters = 16
+        CONFIG.initial_blocks = 2
+        CONFIG.size_transition_iteration = 50
+
+        try:
+            from src.training.system import ProgressiveModelTransition
+            transition = ProgressiveModelTransition(CONFIG)
+            assert transition.current_filters == 16
+            assert transition.current_blocks == 2
+            assert not transition.transitioned
+        finally:
+            CONFIG.__init__(**original)
+
+    def test_should_transition(self):
+        """Test transition decision logic."""
+        from src.config import CONFIG
+        original = CONFIG.model_dump()
+        CONFIG.filters = 128
+        CONFIG.blocks = 10
+        CONFIG.initial_filters = 16
+        CONFIG.initial_blocks = 2
+        CONFIG.size_transition_iteration = 50
+
+        try:
+            from src.training.system import ProgressiveModelTransition
+            transition = ProgressiveModelTransition(CONFIG)
+            assert not transition.should_transition(0)
+            assert not transition.should_transition(49)
+            assert transition.should_transition(50)
+            assert transition.should_transition(100)
+        finally:
+            CONFIG.__init__(**original)
+
+    def test_larger_network_creation(self):
+        """Test creating larger network from smaller."""
+        from src.config import CONFIG
+        from src.training.network import AlphaZeroNet
+        from src.training.system import ProgressiveModelTransition
+
+        original = CONFIG.model_dump()
+        CONFIG.filters = 32
+        CONFIG.blocks = 4
+        CONFIG.initial_filters = 16
+        CONFIG.initial_blocks = 2
+        CONFIG.input_planes = 8
+        CONFIG.action_size = 133
+
+        try:
+            smaller = AlphaZeroNet(filters=16, blocks=2)
+            transition = ProgressiveModelTransition(CONFIG)
+            larger = transition.create_larger_network(smaller)
+
+            assert isinstance(larger, AlphaZeroNet)
+            assert not transition.transitioned  # Not yet transitioned
+        finally:
+            CONFIG.__init__(**original)
+
+    def test_get_current_model_config(self):
+        """Test current model config reporting."""
+        from src.config import CONFIG
+        original = CONFIG.model_dump()
+        CONFIG.filters = 128
+        CONFIG.blocks = 10
+        CONFIG.initial_filters = 16
+        CONFIG.initial_blocks = 2
+
+        try:
+            from src.training.system import ProgressiveModelTransition
+            transition = ProgressiveModelTransition(CONFIG)
+            config = transition.get_current_model_config()
+            assert config["filters"] == 16
+            assert config["blocks"] == 2
+            assert not config["is_larger"]
+        finally:
+            CONFIG.__init__(**original)

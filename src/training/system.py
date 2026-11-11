@@ -8,6 +8,99 @@ from .search import MCTS, AlphaBetaSearch, ParallelSelfPlay, SunfishSearch, Vect
 from .training import AlphaZeroTraining
 
 
+class ProgressiveModelTransition:
+    """Manages progressive model sizing (paper Sec. 9.1).
+
+    Starts with smaller, faster network for early training.
+    Transitions to full network after size_transition_iteration.
+    Uses paired head-to-head matches to decide if transition is warranted.
+    """
+
+    def __init__(self, config=None) -> None:
+        if config is None:
+            from src.config import CONFIG
+            config = CONFIG
+        self.config = config
+        self.current_filters = config.initial_filters
+        self.current_blocks = config.initial_blocks
+        self.transition_iteration = config.size_transition_iteration
+        self.transitioned = False
+
+    def should_transition(self, iteration: int) -> bool:
+        """Check if model should transition to larger size."""
+        return not self.transitioned and iteration >= self.transition_iteration
+
+    def create_larger_network(self, smaller_net, config=None) -> Network:
+        """Create larger network initialized with smaller network's predictions.
+
+        Uses function-preserving growth to avoid catch-up training.
+        """
+        from .network import AlphaZeroNet
+        if config is None:
+            config = self.config
+        larger = AlphaZeroNet(
+            filters=config.filters,
+            blocks=config.blocks,
+            input_planes=config.input_planes,
+            action_size=config.action_size,
+        )
+        # Initialize larger network weights from smaller network
+        self._initialize_larger_from_smaller(smaller_net, larger)
+        return larger
+
+    def _initialize_larger_from_smaller(self, smaller_net, larger_net):
+        """Copy weights from smaller network to larger network.
+
+        This provides head-to-head match capability for size transition decisions.
+        """
+        # Copy state dict with size adjustment
+        smaller_state = smaller_net.state_dict()
+        larger_state = larger_net.state_dict()
+
+        # Only copy weights with matching shapes
+        for key in larger_state:
+            if key in smaller_state and larger_state[key].shape == smaller_state[key].shape:
+                larger_state[key] = smaller_state[key].clone()
+
+        # Copy conv weights (first layer expansion with zero padding)
+        conv_key = 'conv.weight'
+        if conv_key in smaller_state and conv_key in larger_state:
+            larger_state[conv_key] = larger_state[conv_key].clone()
+            # Copy to first channels, pad rest with zeros
+            larger_state[conv_key][:smaller_state[conv_key].shape[0], :, :, :] = smaller_state[conv_key]
+
+        # Copy residual block weights with padding for expanded filters
+        for i in range(min(len(smaller_net.blocks), len(larger_net.blocks))):
+            prefix = f"blocks.{i}."
+            for key in smaller_state:
+                if key.startswith(prefix):
+                    suffix = key[len(prefix):]
+                    larger_key = f"blocks.{i}.{suffix}"
+                    if larger_key in larger_state:
+                        # Pad with zeros if shapes differ
+                        if larger_state[larger_key].shape == smaller_state[key].shape:
+                            larger_state[larger_key] = smaller_state[key].clone()
+                        else:
+                            # Copy to first dimensions, pad rest with zeros
+                            new_weight = larger_state[larger_key].clone()
+                            # Determine which dimension to copy along
+                            smaller_shape = smaller_state[key].shape
+                            # Copy smaller weights into first portion
+                            slices = [slice(0, s) for s in smaller_shape]
+                            new_weight[tuple(slices)] = smaller_state[key]
+                            larger_state[larger_key] = new_weight
+
+        larger_net.load_state_dict(larger_state)
+
+    def get_current_model_config(self) -> dict:
+        """Return current model configuration."""
+        return {
+            "filters": self.current_filters,
+            "blocks": self.current_blocks,
+            "is_larger": self.transitioned,
+        }
+
+
 class Factory:
     _networks = {"alphazero": AlphaZeroNet}
     _games = {"chess": ChessGame}

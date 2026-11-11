@@ -5,7 +5,7 @@ import torch
 
 from ..config import CONFIG
 from .replay import SparseReplayBuffer
-from .system import Factory
+from .system import Factory, ProgressiveModelTransition
 
 # Lazy W&B import (optional dependency)
 try:
@@ -43,6 +43,9 @@ class Trainer:
                 group=config.wandb_group if hasattr(config, 'wandb_group') else None,
                 config=config.model_dump(),
             )
+        # Progressive model transition (paper Sec. 9.1)
+        self.progressive_model = ProgressiveModelTransition(config)
+
         # Pre-fill buffer so training can start immediately.
         self._start_initial_generation()
 
@@ -88,6 +91,10 @@ class Trainer:
     def train(self, iterations: int) -> None:
         print(f"Training for {iterations} iterations...")
         for i in range(iterations):
+            # Check for model transition (paper Sec. 9.1)
+            if self.progressive_model.should_transition(i):
+                self._transition_to_larger_model(i)
+
             res = self.train_iteration(i)
             print(f"Iteration {i}: Loss = {res['loss']:.4f}")
             if i % 100 == 0:
@@ -95,6 +102,25 @@ class Trainer:
 
         self.save_checkpoint("model.pt")
         print("Training complete. Model saved to model.pt")
+
+    def _transition_to_larger_model(self, iteration: int) -> None:
+        """Transition to larger network size (paper Sec. 9.1)."""
+        print(f"\n=== Model Transition at iteration {iteration} ===")
+        print(f"Transitioning from {self.progressive_model.current_filters}x{self.progressive_model.current_blocks} "
+              f"to {self.config.filters}x{self.config.blocks}")
+
+        # Create larger network
+        larger_net = self.progressive_model.create_larger_network(self.network)
+
+        # Create new training components with larger network
+        self.network = larger_net
+        self.search = Factory.create_search(
+            "vectorized_mcts", self.game, network=self.network, config=self.config
+        )
+        self.training = Factory.create_training("alphazero", self.network, self.device)
+        self.progressive_model.transitioned = True
+
+        print("Model transition complete. Larger network now active.")
 
 
 if __name__ == "__main__":  # pragma: no cover
