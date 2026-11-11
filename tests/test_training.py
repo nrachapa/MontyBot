@@ -134,7 +134,7 @@ class TestImplementations:
         game = ChessGame()
         c = CONFIG.c_discount
 
-        def fake_search(state, root=None):
+        def fake_search(state, root=None, **kwargs):
             actions = game.get_legal_moves(state)
             p = np.zeros(CONFIG.action_size, dtype=np.float32)
             if actions:

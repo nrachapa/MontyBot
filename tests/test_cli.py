@@ -239,7 +239,7 @@ class TestCLIIntegration:
         # The CLI calls play_game(game, policy, max_moves=200);
         # patching at the import ensures the mock is used.
         with patch("src.cli.play_game") as mock_play:
-            mock_play.return_value = ([Mock()], 0)  # (traj, winner)
+            mock_play.return_value = ([Mock()], 0, False)  # (traj, winner, is_capped)
 
             result = runner.invoke(cli, ["evaluate", "--is-local"])
 
@@ -271,7 +271,7 @@ class TestEvaluateImpl:
 
         # mock_play = top decorator = "src.cli.play_game"
         # mock_exists = bottom decorator = "os.path.exists"
-        mock_play.return_value = ([], 0)  # play_game returns (traj, winner)
+        mock_play.return_value = ([], 0, False)  # (traj, winner, is_capped)
         mock_exists.return_value = False  # os.path.exists returns False
 
         # mock_factory = 2nd decorator = "src.cli.Factory.create_network"
@@ -326,7 +326,7 @@ class TestEvaluateImpl:
 
         # mock_play = top = "src.cli.play_game"
         # mock_exists = bottom = "os.path.exists"
-        mock_play.return_value = ([], 0)  # (traj, winner)
+        mock_play.return_value = ([], 0, False)  # (traj, winner, is_capped)
         mock_exists.return_value = False
 
         # mock_s3_manager = "src.cli.S3Manager"

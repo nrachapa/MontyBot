@@ -12,6 +12,28 @@ _PIECE_PLANE = {
 CASTLING_PLANE = 6
 ENPASSANT_PLANE = 7
 
+# Board-tensor cache: maps (fen, color) -> np.ndarray.  Avoids re-encoding
+# boards that reappear (common in repeated lines / transpositions).
+_ENCODE_CACHE: dict[tuple[str, int], np.ndarray] = {}
+
+
+def encode_board_cached(board: chess.Board, color: int) -> np.ndarray:
+    """Encode board, caching by (FEN, side-to-move color).
+
+    The paper (Sec. 5.1) identifies board encoding as part of the Python
+    dispatch bottleneck.  This cache eliminates the encoding when a
+    position reappears on the tree (e.g. repeated lines).
+    """
+    fen = board.fen()
+    key = (fen, color)
+    cached = _ENCODE_CACHE.get(key)
+    if cached is not None:
+        return cached
+    tensor = encode_board(board)
+    if len(_ENCODE_CACHE) < 500_000:
+        _ENCODE_CACHE[key] = tensor
+    return tensor
+
 
 def _king_square(board: chess.Board, color) -> int | None:
     return next(iter(board.pieces(chess.KING, color)), None)
@@ -121,7 +143,7 @@ def play_game(
     rng=None,
     max_moves=200,
 ):
-    """Play a game to completion, returning (trajectory, winner).
+    """Play a game to completion.
 
     The caller provides **policy_fn** and optionally **opponent_fn** —
     each is a callable(state) → int (move index).  play_game owns the
@@ -129,11 +151,15 @@ def play_game(
     game.apply_move, and the optional move cap.
 
     Returns
-        (trajectory: list[Position], winner: int) — winner is +1/−1/0.
+        (trajectory: list[Position], winner: int, is_capped: bool)
+        — winner is +1/−1/0; is_capped signals the move limit was hit
+        (the game was not decided naturally; caller may do a cutoff
+        search — paper Sec. 4.2.6).
     """
     state = game.get_initial_state()
     trajectory = []
     move_count = 0
+    is_capped = False
 
     while not game.is_terminal(state) and move_count < max_moves:
         try:
@@ -143,9 +169,14 @@ def play_game(
         trajectory.append(state)
         state = game.apply_move(state, move)
         move_count += 1
+    else:
+        # Reached max_moves without terminal state.
+        is_capped = True
+        winner = 0  # capped games count as draws
+        return trajectory, winner, is_capped
 
     winner = game.get_winner(state)
-    return trajectory, winner
+    return trajectory, winner, is_capped
 
 
 class ChessGame(Game):

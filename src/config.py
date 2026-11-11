@@ -23,6 +23,11 @@ class MontyBotConfig(BaseConfig):
     input_planes: int = Field(default=8, gt=0)
     action_size: int = Field(default=133, gt=0)
 
+    # Progressive model sizing (paper Sec. 9.1): start small, grow as training progresses
+    initial_filters: int = Field(default=32, gt=0)
+    initial_blocks: int = Field(default=2, gt=0)
+    size_transition_iteration: int = Field(default=1000, ge=0)  # iteration to switch to full model
+
     # Training Hyperparameters
     learning_rate: float = Field(default=1e-3, gt=0)
     batch_size: int = Field(default=64, gt=0)
@@ -60,6 +65,10 @@ class MontyBotConfig(BaseConfig):
     eval_games: int = Field(default=20, gt=0)
     eval_threshold: float = Field(default=0.9, gt=0, le=1.0)
 
+    # TensorRT + INT8 quantization (paper Sec. 9.2)
+    quantization_aware_training: bool = False  # QAT simulates INT8 rounding/clipping
+    tensorrt_engine_path: str = Field(default="")  # path to compiled TensorRT engine
+
     # Runtime
     # 'auto' prefers MPS on Apple Silicon (the M6 box is the default hardware,
     # ADR-0010) for the training steps. Generation runs where the flat
@@ -69,6 +78,15 @@ class MontyBotConfig(BaseConfig):
     # 'cuda' for cloud jobs.
     device: str = Field(default="auto", validate_default=True)
     gen_device: str = Field(default="cpu", validate_default=True)
+
+    # Restart states (paper Sec. 6.3): 50% of games start from archived positions
+    # with interesting alternatives left to explore
+    use_restart_states: bool = True
+    restart_state_probability: float = Field(default=0.5, ge=0.0, le=1.0)
+    restart_position_history: list = Field(default_factory=list)  # cached positions for restarts
+
+    # Sparse replay storage (paper Sec. 7): store policies sparsely
+    sparse_replay: bool = True  # only store actions with visit mass
 
     @field_validator("device", "gen_device")
     @classmethod
@@ -87,6 +105,14 @@ def resolve_device(v: str) -> str:
     if v == "auto":
         return "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
     return v
+
+
+def detect_cuda_compatible() -> bool:
+    """Check if CUDA is available and compute capability >= 6.0 (Volta or newer)."""
+    if not torch.cuda.is_available():
+        return False
+    cc = torch.cuda.get_device_properties(0).major
+    return not cc < 6
 
 
 def resolve_batch_size(device: str) -> int:

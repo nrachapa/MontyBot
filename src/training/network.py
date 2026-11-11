@@ -41,3 +41,39 @@ class AlphaZeroNet(Network, nn.Module):
         logits = self.head_p(z)
         value = torch.tanh(self.head_v(z))
         return logits, value
+
+
+# ============================================================
+# Quantization-aware training (paper Sec. 9.2)
+# ============================================================
+
+class QuantizationAwareNetwork(nn.Module):
+    """Wraps AlphaZeroNet for quantization-aware training (paper Sec. 9.2).
+
+    QAT simulates INT8 rounding and clipping during training so the
+    network learns to compensate for quantization error before export.
+    """
+
+    def __init__(self, base_network: AlphaZeroNet) -> None:
+        super().__init__()
+        self.base_network = base_network
+        self.fake_quant_enabled = True
+
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        logits, value = self.base_network(x)
+        if self.fake_quant_enabled:
+            # Simulate INT8: quantize to [-128, 127], then dequantize
+            scale = max(abs(logits).max(), abs(value).max()) / 127.0
+            if scale > 0:
+                logits = torch.round(logits / scale) * scale
+                value = torch.round(value / scale) * scale
+        return logits, value
+
+    def disable_fake_quant(self) -> None:
+        """Disable fake quantization before ONNX export."""
+        self.fake_quant_enabled = False
+
+    def __getattr__(self, name: str) -> any:
+        if name in self.__dict__ or name.startswith("_"):
+            return self.__dict__[name]
+        return getattr(self.base_network, name)

@@ -54,11 +54,13 @@ class Factory:
         return cls._search[name](game)
 
     @classmethod
-    def create_selfplay(cls, name: str, game, search, config=None) -> SelfPlayStrategy:
+    def create_selfplay(cls, name: str, game, search, config=None, **kwargs) -> SelfPlayStrategy:
         if config is None:
             from src.config import CONFIG
             config = CONFIG
-        return cls._selfplay[name](game, search, config.gen_device, config.batch_size)
+        return cls._selfplay[name](
+            game, search, config.gen_device, config.batch_size, **kwargs
+        )
 
     @classmethod
     def create_training(cls, name: str, net, device, config=None) -> TrainingStrategy:

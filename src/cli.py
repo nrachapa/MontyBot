@@ -182,7 +182,7 @@ def _evaluate_impl(is_local=False, opponent: str = "random"):
         # play_game owns the loop: termination + state transitions.
         # Caller manages device placement, policy routing, and
         # win/draw/loss attribution.
-        _, winner = play_game(game, policy, max_moves=200)
+        _, winner, _ = play_game(game, policy, max_moves=200)  # (traj, winner, is_capped)
 
         # Winner is from white's perspective (+1=white wins, -1=black wins, 0=draw).
         # Map to model color: if model plays white, winner==1 → win; else loss.

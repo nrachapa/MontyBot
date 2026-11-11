@@ -1,8 +1,8 @@
 """Tests for play_game — the extracted game loop.
 
-Red → green: these tests define the desired interface first,
-then we implement play_game(game, policy_fn, opponent_fn=None)
-to satisfy them.
+play_game returns (traj, winner, is_capped) — the is_capped flag
+indicates the move limit was hit (caller may do a cutoff search;
+paper Sec. 4.2.6).
 """
 import chess
 import numpy as np
@@ -22,7 +22,7 @@ def _legal_move(game):
 
 
 class TestPlayGameBasic:
-    """play_game(game, policy_fn, rng=None) → (trajectory, winner)"""
+    """play_game(game, policy_fn, rng=None) → (trajectory, winner, is_capped)"""
 
     def test_returns_trajectory_and_winner(self):
         """play_game returns a list of states and an int winner."""
@@ -31,9 +31,10 @@ class TestPlayGameBasic:
         game = ChessGame()
         policy = _legal_move(game)
 
-        traj, winner = play_game(game, policy)
+        traj, winner, is_capped = play_game(game, policy)
         assert isinstance(traj, list)
         assert winner in [-1, 0, 1]
+        assert isinstance(is_capped, bool)
 
     def test_policy_called_once_per_trajectory_item(self):
         """Each state in the trajectory was produced by exactly one
@@ -49,7 +50,7 @@ class TestPlayGameBasic:
             policy_count[0] += 1
             return orig(state)
 
-        traj, winner = play_game(game, counting_policy, max_moves=5)
+        traj, winner, is_capped = play_game(game, counting_policy, max_moves=5)
         assert policy_count[0] == len(traj) == 5
 
 
@@ -60,7 +61,7 @@ class TestPlayGameTermination:
 
         game = ChessGame()
         policy = _legal_move(game)
-        traj, winner = play_game(game, policy, max_moves=3)
+        traj, winner, is_capped = play_game(game, policy, max_moves=3)
         assert len(traj) == 3
         for s in traj:
             assert isinstance(s, Position)
@@ -72,7 +73,7 @@ class TestPlayGameTermination:
 
         game = ChessGame()
         policy = _legal_move(game)
-        traj, winner = play_game(game, policy, max_moves=10)
+        traj, winner, is_capped = play_game(game, policy, max_moves=10)
         assert len(traj) == 10  # exactly 10 moves
 
     def test_policy_not_called_if_terminal(self):
@@ -111,7 +112,7 @@ class TestPlayGameTermination:
                 return 0
 
         game = AlwaysTerminalGame()
-        traj, winner = play_game(game, policy)
+        traj, winner, is_capped = play_game(game, policy)
         assert len(traj) == 0
         assert winner == 0
 
@@ -137,7 +138,7 @@ class TestPlayGameOpponent:
             opponent_calls[0] += 1
             return opp(state)
 
-        traj, winner = play_game(
+        traj, winner, is_capped = play_game(
             game, counting_policy, opponent_fn=counting_opponent, max_moves=4
         )
         assert policy_calls[0] >= 1
