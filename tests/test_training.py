@@ -724,3 +724,73 @@ class TestProgressiveModelTransition:
             assert not config["is_larger"]
         finally:
             CONFIG.__init__(**original)
+
+
+class TestDDPIntegration:
+    """Test distributed training integration (paper Sec. 5.1)."""
+
+    def test_ddp_disabled_by_default(self):
+        """Test DDP is disabled by default."""
+        from src.config import CONFIG
+        assert not CONFIG.ddp_enabled
+
+    def test_ddp_enabled_config(self):
+        """Test DDP enabled flag."""
+        from src.config import CONFIG
+        original = CONFIG.model_dump()
+        CONFIG.ddp_enabled = True
+        assert CONFIG.ddp_enabled
+        CONFIG.__init__(**original)
+
+    def test_ddp_backend_config(self):
+        """Test DDP backend field exists."""
+        from src.config import CONFIG
+        assert CONFIG.ddp_backend == "nccl"
+
+    @patch("torch.distributed.init_process_group")
+    def test_ddp_setup_disabled(self, mock_init):
+        """Test DDP setup when disabled (should not call init)."""
+        from src.config import CONFIG
+        from src.training.trainer import Trainer
+
+        original = CONFIG.model_dump()
+        CONFIG.device = "cpu"
+        CONFIG.ddp_enabled = False
+
+        try:
+            trainer = Trainer(CONFIG)
+            assert not hasattr(trainer, "ddp_group") or trainer.ddp_group is None
+        finally:
+            CONFIG.__init__(**original)
+
+
+class TestCudaAcceleration:
+    """Test CUDA acceleration configuration."""
+
+    def test_cuda_acceleration_disabled_by_default(self):
+        """Test CUDA acceleration is disabled by default."""
+        from src.config import CONFIG
+        assert not CONFIG.cuda_acceleration
+
+    def test_cuda_acceleration_config(self):
+        """Test CUDA acceleration field exists."""
+        from src.config import CONFIG
+        original = CONFIG.model_dump()
+        CONFIG.cuda_acceleration = True
+        assert CONFIG.cuda_acceleration
+        CONFIG.__init__(**original)
+
+    def test_encode_board_cuda_fallback(self):
+        """Test encode_board_cuda falls back to CPU when CUDA unavailable."""
+        import os
+        os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
+        import chess
+
+        from src.training.game import encode_board_cuda
+
+        board = chess.Board()
+        tensor = encode_board_cuda(board)
+        assert tensor is not None
+        assert tensor.shape == (8, 8, 8)
+        assert tensor.dtype == torch.float32

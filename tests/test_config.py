@@ -129,3 +129,28 @@ class TestConfiguration:
         # 'auto' should resolve to something valid
         resolved = resolve_device("auto")
         assert resolved in ("cpu", "cuda", "mps")
+
+
+class TestDistributedConfig:
+    """Test distributed training config fields."""
+
+    def test_ddp_enabled_field(self):
+        """Test ddp_enabled config field."""
+        from src.config import MontyBotConfig
+        config = MontyBotConfig()
+        assert config.ddp_enabled is False
+        assert config.ddp_backend == "nccl"
+
+    def test_cuda_acceleration_field(self):
+        """Test cuda_acceleration config field."""
+        from src.config import MontyBotConfig
+        config = MontyBotConfig()
+        assert config.cuda_acceleration is False
+
+    def test_sagemaker_multi_gpu_fields(self):
+        """Test SageMaker multi-GPU config fields."""
+        from src.config import MontyBotConfig
+        config = MontyBotConfig()
+        assert config.on_demand is False
+        assert config.instance_gpu_count == 1
+        assert config.on_demand_instance_type == "ml.g5.4xlarge"

@@ -88,6 +88,18 @@ class MontyBotConfig(BaseConfig):
     # Sparse replay storage (paper Sec. 7): store policies sparsely
     sparse_replay: bool = True  # only store actions with visit mass
 
+    # Distributed training (paper Sec. 5.1): multi-GPU DDP support
+    ddp_enabled: bool = False  # enable PyTorch DDP distributed training
+    ddp_backend: str = "nccl"  # distributed backend: "nccl", "gloo", "mpi"
+
+    # CUDA acceleration (paper Sec. 9): GPU-accelerated move gen and MCTS
+    cuda_acceleration: bool = False  # use CUDA for move generation and neural eval
+
+    # SageMaker multi-GPU config
+    on_demand: bool = False  # use on-demand instead of spot instances
+    instance_gpu_count: int = Field(default=1, ge=1, le=8)
+    on_demand_instance_type: str = "ml.g5.4xlarge"  # on-demand GPU instance type
+
     @field_validator("device", "gen_device")
     @classmethod
     def _resolve_device(cls, v):

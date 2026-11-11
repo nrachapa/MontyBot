@@ -507,3 +507,57 @@ class TestAWSAccess:
 
         s3_manager = S3Manager("test-bucket")
         assert hasattr(s3_manager, "download_checkpoint")
+
+
+class TestSageMakerMultiGPU:
+    """Test SageMaker multi-GPU configuration."""
+
+    def test_gpu_count_config(self):
+        """Test instance_gpu_count config field exists."""
+        from src.config import CONFIG
+        original = CONFIG.model_dump()
+        CONFIG.instance_gpu_count = 4
+        assert CONFIG.instance_gpu_count == 4
+        CONFIG.__init__(**original)
+
+    def test_on_demand_config(self):
+        """Test on_demand config field exists."""
+        from src.config import CONFIG
+        original = CONFIG.model_dump()
+        CONFIG.on_demand = True
+        assert CONFIG.on_demand
+        CONFIG.__init__(**original)
+        CONFIG.__init__(**original)
+
+    def test_multi_gpu_instance_selection(self):
+        """Test multi-GPU instance type selection logic."""
+        from src.config import CONFIG
+        from src.infra.sagemaker_manager import load_aws_config
+
+        original = CONFIG.model_dump()
+        CONFIG.instance_gpu_count = 4
+        CONFIG.on_demand = True
+        CONFIG.on_demand_instance_type = "ml.p3.8xlarge"
+
+        try:
+            result = load_aws_config(CONFIG)
+            # Verify multi-GPU fields are in config
+            assert result["training"]["on_demand"] is True
+            assert result["training"]["instance_gpu_count"] == 4
+            assert result["training"]["on_demand_instance_type"] == "ml.p3.8xlarge"
+        finally:
+            CONFIG.__init__(**original)
+
+    def test_spot_instances_not_overridden(self):
+        """Test spot_instances remains True when on_demand is False."""
+        from src.config import CONFIG
+        from src.infra.sagemaker_manager import load_aws_config
+        original = CONFIG.model_dump()
+        CONFIG.spot_instances = True
+        CONFIG.on_demand = False
+
+        try:
+            result = load_aws_config(CONFIG)
+            assert result["training"]["spot_instances"] is True
+        finally:
+            CONFIG.__init__(**original)

@@ -190,7 +190,9 @@ class VectorizedMCTS(SearchStrategy):
     # -------------------------------------------------------------- net
 
     def _net_root(self, k: int) -> None:
-        x = torch.from_numpy(self.tensors[k]).unsqueeze(0).to(next(self.network.parameters()).device)
+        """Network evaluation for root move search."""
+        device = next(self.network.parameters()).device
+        x = torch.from_numpy(self.tensors[k]).unsqueeze(0).to(device)
         with torch.inference_mode():
             logits, _ = self.network(x)
         probs = torch.softmax(logits, dim=1).cpu().numpy()[0]
@@ -213,9 +215,11 @@ class VectorizedMCTS(SearchStrategy):
             self.priors[k, int(a)] = new[int(a)]
 
     def _batch_net(self, batch: list[int]) -> None:
+        """Batched network evaluation for leaf positions."""
         if not batch:
             return
-        x = torch.from_numpy(np.stack([self.tensors[i] for i in batch])).to(next(self.network.parameters()).device)
+        device = next(self.network.parameters()).device
+        x = torch.from_numpy(np.stack([self.tensors[i] for i in batch])).to(device)
         with torch.inference_mode():
             _, value = self.network(x)
         for i, v in zip(batch, value.squeeze(1).cpu().numpy()):

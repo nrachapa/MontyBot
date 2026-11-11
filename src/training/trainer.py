@@ -1,3 +1,4 @@
+import os
 from typing import Any
 
 import numpy as np
@@ -21,7 +22,22 @@ class Trainer:
             config = CONFIG
         self.config = config
         self.device = torch.device(config.device)
+
+        # Distributed setup (paper Sec. 5.1): init process group before DDP
+        self._setup_ddp(config)
+
         self.network = Factory.create_network("alphazero", config)
+
+        # Wrap with DDP if enabled (paper Sec. 5.1)
+        if config.ddp_enabled:
+            local_rank = int(os.environ.get("LOCAL_RANK", 0))
+            self.network = torch.nn.parallel.DistributedDataParallel(
+                self.network,
+                device_ids=[local_rank] if torch.cuda.is_available() else None,
+                broadcast_buffers=False,
+                find_unused_parameters=False,
+            )
+
         self.game = Factory.create_game("chess")
         self.search = Factory.create_search("vectorized_mcts", self.game, network=self.network, config=config)
         # Actor overlap (paper Sec. 5.5): n_async_games > 0 starts self-play
@@ -48,6 +64,28 @@ class Trainer:
 
         # Pre-fill buffer so training can start immediately.
         self._start_initial_generation()
+
+    def _setup_ddp(self, config):
+        """Initialize distributed process group when DDP is enabled.
+
+        Graceful when MASTER_ADDR/RANK/WORLD_SIZE env vars are not set
+        (single-GPU or non-distributed mode).
+        """
+        import os
+        if not config.ddp_enabled:
+            return
+
+        try:
+            os.environ["MASTER_ADDR"] = os.environ.get("MASTER_ADDR", "localhost")
+            os.environ["RANK"] = os.environ.get("RANK", "0")
+            os.environ["WORLD_SIZE"] = os.environ.get("WORLD_SIZE", "1")
+            os.environ["LOCAL_RANK"] = os.environ.get("LOCAL_RANK", "0")
+
+            backend = config.ddp_backend if hasattr(config, "ddp_backend") else "nccl"
+            torch.distributed.init_process_group(backend=backend)
+        except (RuntimeError, KeyError, ValueError):
+            # Single-GPU: gracefully fall back
+            torch.distributed = None  # noqa: F811
 
     def _start_initial_generation(self) -> None:
         """Kick off the first batch of games in the background."""

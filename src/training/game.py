@@ -1,5 +1,6 @@
 import chess
 import numpy as np
+import torch
 
 from ..core import Game
 
@@ -57,6 +58,21 @@ def encode_board(board: chess.Board) -> np.ndarray:
     if board.ep_square is not None:
         x[ENPASSANT_PLANE, board.ep_square // 8, board.ep_square % 8] = 1.0
     return x
+
+
+def encode_board_cuda(board: chess.Board) -> torch.Tensor:
+    """Encode board and return a CUDA tensor for GPU neural evaluation.
+
+    Falls back to CPU tensor when CUDA is not available.
+
+    Setup requirements:
+    1. NVIDIA GPU with CUDA 11+ and compatible drivers
+    2. PyTorch with CUDA support (pip install torch --index-url https://download.pytorch.org/whl/cu118)
+    3. Enable with cuda_acceleration=True in MontyBotConfig
+    """
+    np_tensor = encode_board(board)
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    return torch.from_numpy(np_tensor).to(device)
 
 
 class MoveMapper:

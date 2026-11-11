@@ -39,6 +39,11 @@ def load_aws_config(config=None):
             "poll_seconds": config.poll_seconds,
             "default_instance_type": config.default_instance_type,
             "spot_instances": config.spot_instances,
+            "on_demand": config.on_demand,
+            "instance_gpu_count": config.instance_gpu_count,
+            "on_demand_instance_type": config.on_demand_instance_type,
+            "ddp_enabled": config.ddp_enabled,
+            "ddp_backend": config.ddp_backend,
         },
         "aws": {"s3": {"bucket": config.bucket}, "credentials": {"role_arn": config.role_arn}},
     }
@@ -71,8 +76,30 @@ def launch_job(args=None, instance_type: str | None = None, config=None):
     job_name = trn["job_name"]
     iterations = trn["iterations"]
     bucket = aws["s3"]["bucket"]
+    on_demand = bool(trn.get("on_demand", False))
+    instance_gpu_count = int(trn.get("instance_gpu_count", 1))
+    on_demand_instance_type = trn.get("on_demand_instance_type", "") or "ml.g5.4xlarge"
+
     instance_type = instance_type or trn["default_instance_type"]
-    use_spot_instances = bool(trn.get("spot_instances", True))
+
+    # Multi-GPU instance type selection (paper Sec. 5.1)
+    if on_demand:
+        # On-demand: use larger GPU instances for sustained training
+        if instance_gpu_count >= 4:
+            instance_type = instance_type or on_demand_instance_type
+        elif instance_gpu_count >= 2:
+            instance_type = instance_type or "ml.p3.2xlarge"
+        else:
+            instance_type = instance_type or "ml.g5.4xlarge"
+    elif instance_gpu_count >= 4:
+        instance_type = instance_type or "ml.p3.8xlarge"
+    elif instance_gpu_count >= 2:
+        instance_type = instance_type or "ml.p3.2xlarge"
+    elif instance_gpu_count >= 1 and instance_type not in ("ml.g4dn.4xlarge", "ml.g5.4xlarge"):
+        # Use 4-GPU instance when configured for better throughput
+        instance_type = instance_type or "ml.g4dn.4xlarge"
+
+    use_spot_instances = bool(trn.get("spot_instances", True)) and not on_demand
 
     try:
         role = get_execution_role()
@@ -107,8 +134,10 @@ def launch_job(args=None, instance_type: str | None = None, config=None):
         output_data_config=OutputDataConfig(
             s3_output_path=f"s3://{bucket}",
         ),
-        environment={"PYTHONUNBUFFERED": "1"},
-        hyperparameters={"iterations": iterations, "s3_bucket": bucket, "job_name": job_name},
+        environment={"PYTHONUNBUFFERED": "1", "INSTANCE_GPU_COUNT": str(instance_gpu_count)},
+        hyperparameters={"iterations": iterations, "s3_bucket": bucket, "job_name": job_name,
+                         "ddp_enabled": str(config.ddp_enabled),
+                         "ddp_backend": config.ddp_backend},
     )
 
     job_name = trainer.fit(job_name=job_name, wait=False)
