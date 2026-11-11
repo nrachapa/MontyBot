@@ -469,7 +469,8 @@ class TestTrainer:
 
             # Mock components
             trainer.search.network = trainer.network  # Ensure MCTS has network
-            trainer.selfplay.generate_games = Mock(return_value=[[("state", "policy", 0.1)]])
+            # Mock _wait_for_generation (called by train_iteration -> _get_next_batch)
+            trainer.selfplay._wait_for_generation = Mock(return_value=[[("state", "policy", 0.1)]])
             trainer.training.train_step = Mock(return_value=1.5)
 
             # Test training iteration

@@ -441,9 +441,26 @@ class TestSageMakerIntegration:
         assert mock_sm.describe_training_job.call_count == 2
 
 
+# Check for usable AWS credentials (skip if credentials are empty or credentials object is None)
+def _has_usable_aws_credentials():
+    try:
+        session = boto3.session.Session()
+        creds = session.get_credentials()
+        if creds is None:
+            return False
+        # Check if credentials have valid access_key and secret_key
+        if not hasattr(creds, 'access_key') or creds.access_key is None:
+            return False
+        if not hasattr(creds, 'secret_key') or creds.secret_key is None:
+            return False
+        return True
+    except Exception:
+        return False
+
+
 @pytest.mark.skipif(
-    boto3.session.Session().get_credentials() is None,
-    reason="live AWS access tests need configured credentials",
+    not _has_usable_aws_credentials(),
+    reason="live AWS access tests need valid credentials",
 )
 class TestAWSAccess:
     def test_aws_credentials(self):
