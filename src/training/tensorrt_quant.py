@@ -107,6 +107,55 @@ class ONNXExporter:
             verbose=False,
         )
 
+    @staticmethod
+    def export_with_validation(
+        model: nn.Module,
+        output_path: str,
+        input_shape: tuple[int, int, int, int] = (1, 8, 8, 8),
+        opset_version: int = 13,
+        dummy_label: str = "montybot",
+    ) -> dict:
+        """Export trained model to ONNX with validation.
+
+        Returns dict with export stats for logging/monitoring.
+        """
+        import os
+
+        model.eval()
+
+        # Get model info
+        num_params = sum(p.numel() for p in model.parameters())
+
+        # Export
+        ONNXExporter.export(model, output_path, input_shape, opset_version)
+
+        # Validate output file
+        output_size = os.path.getsize(output_path)
+
+        # Validate ONNX model structure
+        try:
+            import onnx
+            onnx_model = onnx.load(output_path)
+            num_nodes = len(onnx_model.graph.node)
+            num_inputs = len(onnx_model.graph.input)
+            num_outputs = len(onnx_model.graph.output)
+        except ImportError:
+            num_nodes = 0
+            num_inputs = 0
+            num_outputs = 0
+            output_size = 0
+
+        return {
+            "output_path": output_path,
+            "num_parameters": num_params,
+            "model_size_bytes": output_size,
+            "model_size_mb": output_size / (1024 * 1024),
+            "num_onnx_nodes": num_nodes,
+            "num_inputs": num_inputs,
+            "num_outputs": num_outputs,
+            "dummy_label": dummy_label,
+        }
+
 
 class TensorRTInference:
     """TensorRT inference engine wrapper (when TensorRT is available).

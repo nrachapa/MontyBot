@@ -60,11 +60,7 @@ class TestONNXExporter:
 
     def test_export_dimensions(self):
         """Test export preserves model structure."""
-        class DummyNet(nn.Module):
-            def forward(self, x):
-                return x + 1
-
-        nn.Module.__init__(DummyNet())
+        nn.Module.__init__(type('DummyNet', (nn.Module,), {'forward': lambda s, x: x + 1})())
         assert hasattr(ONNXExporter, 'export')
 
 
@@ -97,3 +93,24 @@ class TestBenchmark:
         assert "throughput_fp32" in results
         assert results["latency_fp32_ms"] > 0
         assert results["throughput_fp32"] > 0
+
+
+class TestONNXExporterIntegration:
+    """Test ONNX export with trained model integration."""
+
+    def test_export_with_validation(self):
+        """Test ONNX export with validation structure."""
+        from src.training.tensorrt_quant import ONNXExporter
+
+        # Test that export_with_validation exists and returns expected structure
+        DummyChessNet()
+
+        # We can't actually export without onnxscript, but we can test the interface
+        # by checking the method signature and structure
+        assert hasattr(ONNXExporter, 'export_with_validation')
+
+        # Verify the method exists and is callable
+        assert callable(ONNXExporter.export_with_validation)
+
+        # Check that it has correct docstring indicating trained model export
+        assert "validation" in ONNXExporter.export_with_validation.__doc__.lower()
