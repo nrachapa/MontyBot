@@ -451,9 +451,8 @@ def _has_usable_aws_credentials():
         # Check if credentials have valid access_key and secret_key
         if not hasattr(creds, 'access_key') or creds.access_key is None:
             return False
-        if not hasattr(creds, 'secret_key') or creds.secret_key is None:
+        if not (hasattr(creds, 'secret_key') and creds.secret_key is not None):
             return False
-        return True
     except Exception:
         return False
 
