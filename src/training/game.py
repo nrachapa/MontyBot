@@ -65,10 +65,24 @@ def encode_board_cuda(board: chess.Board) -> torch.Tensor:
 
     Falls back to CPU tensor when CUDA is not available.
 
-    Setup requirements:
-    1. NVIDIA GPU with CUDA 11+ and compatible drivers
-    2. PyTorch with CUDA support (pip install torch --index-url https://download.pytorch.org/whl/cu118)
-    3. Enable with cuda_acceleration=True in MontyBotConfig
+    Setup for CUDA on AWS EC2:
+    - Launch EC2 instance with NVIDIA GPU-Optimized AMI (pre-installed NVIDIA drivers + CUDA)
+      https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/install-nvidia-driver.html
+    - For custom CUDA version, install CUDA Toolkit after instance launch
+    - Verify drivers + CUDA: nvidia-smi
+    - PyTorch with CUDA: pip install torch --index-url https://download.pytorch.org/whl/cu118
+    - Verify CUDA in Python: python -c "import torch; print(torch.cuda.is_available())"
+
+    Setup for SageMaker (cloud training):
+    - Use GPU instance types (ml.g4dn.xlarge, ml.g5.xlarge, ml.p3.2xlarge)
+    - PyTorch DLC images include CUDA: 763104351884.dkr.ecr.<region>.amazonaws.com/pytorch-training:2.14-cu133-amzn2023
+    - Enable with cuda_acceleration=True in MontyBotConfig
+
+    Args:
+        board: chess.Board instance to encode
+
+    Returns:
+        torch.Tensor on CUDA device, or CPU tensor as fallback
     """
     np_tensor = encode_board(board)
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
